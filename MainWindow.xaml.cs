@@ -88,7 +88,7 @@ public partial class MainWindow : Window, IDisposable
 
     private void ContentRoot_OnMouseLeftButtonUp(object sender, MouseButtonEventArgs e)
     {
-        if (!_disposed && _stateMachine.Current == NotchState.Compact)
+        if (!_disposed && _stateMachine.VisualState == NotchState.Compact)
         {
             _autoHideService.Cancel();
             _stateMachine.Expand();
@@ -98,7 +98,7 @@ public partial class MainWindow : Window, IDisposable
 
     private void Window_OnPreviewKeyDown(object sender, KeyEventArgs e)
     {
-        if (!_disposed && e.Key == Key.Escape && _stateMachine.Current == NotchState.Expanded)
+        if (!_disposed && e.Key == Key.Escape && _stateMachine.VisualState == NotchState.Expanded)
         {
             _stateMachine.Collapse();
             e.Handled = true;
@@ -131,11 +131,10 @@ public partial class MainWindow : Window, IDisposable
             return;
         }
 
+        var visualState = _stateMachine.VisualState;
         HiddenTrigger.Visibility = state == NotchState.Hidden ? Visibility.Visible : Visibility.Collapsed;
-        CompactContent.Visibility = state == NotchState.Compact ? Visibility.Visible : Visibility.Collapsed;
-        ExpandedContent.Visibility = state is NotchState.Expanded or NotchState.Pinned
-            ? Visibility.Visible
-            : Visibility.Collapsed;
+        CompactContent.Visibility = visualState == NotchState.Compact ? Visibility.Visible : Visibility.Collapsed;
+        ExpandedContent.Visibility = visualState == NotchState.Expanded ? Visibility.Visible : Visibility.Collapsed;
 
         if (state is NotchState.Hidden or NotchState.Pinned)
         {
@@ -143,7 +142,7 @@ public partial class MainWindow : Window, IDisposable
         }
 
         RefreshItem();
-        _windowController.Apply(state);
+        _windowController.Apply(visualState);
     }
 
     private void StatusStore_OnChanged(object? sender, StatusStoreChangedEventArgs e)
@@ -160,7 +159,7 @@ public partial class MainWindow : Window, IDisposable
         }
 
         RefreshItem();
-        if (e.WakeOnUpdate && _stateMachine.Current != NotchState.Pinned)
+        if (e.WakeOnUpdate && !_stateMachine.IsPinned)
         {
             _autoHideService.Cancel();
             _stateMachine.Set(NotchState.Compact);
@@ -175,9 +174,8 @@ public partial class MainWindow : Window, IDisposable
             return;
         }
 
-        var pinned = _stateMachine.Current == NotchState.Pinned;
-        CompactContent.ShowItem(item, pinned);
-        ExpandedContent.ShowItem(item, pinned);
+        CompactContent.ShowItem(item, _stateMachine.IsPinned);
+        ExpandedContent.ShowItem(item, _stateMachine.IsPinned);
     }
 
     private void Window_OnClosed(object? sender, EventArgs e)

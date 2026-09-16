@@ -10,7 +10,13 @@ public enum NotchState
 
 public sealed class NotchStateMachine
 {
+    private NotchState _pinnedVisualState = NotchState.Compact;
+
     public NotchState Current { get; private set; } = NotchState.Hidden;
+
+    public NotchState VisualState => Current == NotchState.Pinned ? _pinnedVisualState : Current;
+
+    public bool IsPinned => Current == NotchState.Pinned;
 
     public event EventHandler<NotchStateChangedEventArgs>? StateChanged;
 
@@ -41,6 +47,11 @@ public sealed class NotchStateMachine
         {
             Set(NotchState.Expanded);
         }
+        else if (Current == NotchState.Pinned && _pinnedVisualState == NotchState.Compact)
+        {
+            _pinnedVisualState = NotchState.Expanded;
+            NotifyVisualStateChanged();
+        }
     }
 
     public void Collapse()
@@ -49,16 +60,33 @@ public sealed class NotchStateMachine
         {
             Set(NotchState.Compact);
         }
+        else if (Current == NotchState.Pinned && _pinnedVisualState == NotchState.Expanded)
+        {
+            _pinnedVisualState = NotchState.Compact;
+            NotifyVisualStateChanged();
+        }
     }
 
     public void TogglePinned()
     {
-        Set(Current == NotchState.Pinned ? NotchState.Compact : NotchState.Pinned);
+        if (Current == NotchState.Pinned)
+        {
+            Set(_pinnedVisualState);
+            return;
+        }
+
+        _pinnedVisualState = Current == NotchState.Expanded ? NotchState.Expanded : NotchState.Compact;
+        Set(NotchState.Pinned);
     }
 
     public void ToggleVisibility()
     {
         Set(Current == NotchState.Hidden ? NotchState.Compact : NotchState.Hidden);
+    }
+
+    private void NotifyVisualStateChanged()
+    {
+        StateChanged?.Invoke(this, new NotchStateChangedEventArgs(Current, Current));
     }
 }
 

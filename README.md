@@ -17,9 +17,9 @@ dotnet run --project .\NotchBar.csproj
 - `Hidden`：窗口移到屏幕上方，只保留约 2px 的触发条。
 - `Compact`：显示一行摘要，例如 `CC · Working · 128k · 18m`。
 - `Expanded`：显示 detail、secondaryText、progress 和更新时间。
-- `Pinned`：保持 Expanded 内容，不因鼠标离开自动隐藏。
+- `Pinned`：保持当前 Compact 或 Expanded 视觉状态，不因鼠标离开自动隐藏。Pin 只改变固定策略，不负责展开。
 
-鼠标移入顶部中央触发条会唤醒 Compact；离开约 900ms 后自动隐藏。点击 Compact 内容进入 Expanded，按 `Esc` 收起。Pin 控件在自动隐藏和固定显示之间切换。
+鼠标移入顶部中央触发条会唤醒 Compact；离开约 900ms 后自动隐藏。点击 Compact 内容进入 Expanded，按 `Esc` 收起。Pin 控件只切换固定/自动隐藏，不会改变 Compact/Expanded 层级。
 
 ## 默认快捷键
 
