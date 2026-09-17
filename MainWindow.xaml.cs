@@ -117,7 +117,7 @@ public partial class MainWindow : Window, IDisposable
         Debug.WriteLine("NotchBar global hotkey could not be registered.");
     }
 
-    private void Window_OnMouseEnter(object sender, MouseEventArgs e)
+    private void Window_OnMouseEnter(object sender, System.Windows.Input.MouseEventArgs e)
     {
         if (_disposed)
         {
@@ -128,7 +128,7 @@ public partial class MainWindow : Window, IDisposable
         _stateMachine.Wake();
     }
 
-    private void Window_OnMouseLeave(object sender, MouseEventArgs e)
+    private void Window_OnMouseLeave(object sender, System.Windows.Input.MouseEventArgs e)
     {
         if (!_disposed)
         {
@@ -146,7 +146,7 @@ public partial class MainWindow : Window, IDisposable
         }
     }
 
-    private void Window_OnPreviewKeyDown(object sender, KeyEventArgs e)
+    private void Window_OnPreviewKeyDown(object sender, System.Windows.Input.KeyEventArgs e)
     {
         if (!_disposed && e.Key == Key.Escape && _stateMachine.VisualState == NotchState.Expanded)
         {
