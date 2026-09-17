@@ -21,7 +21,9 @@ public sealed class AutoHideService : IDisposable
 
     public void OnMouseEnter() => _timer.Stop();
 
-    public void OnMouseLeave()
+    public void OnMouseLeave() => ScheduleHide();
+
+    public void ScheduleHide()
     {
         if (_disposed || _stateMachine.Current is NotchState.Hidden or NotchState.Pinned)
         {

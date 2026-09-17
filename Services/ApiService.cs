@@ -85,6 +85,11 @@ public sealed class ApiService
                 return Results.BadRequest(new { error });
             }
 
+            if (StatusStore.IsReservedId(id))
+            {
+                return Results.BadRequest(new { error = $"'{id}' is reserved for a built-in item" });
+            }
+
             return Results.Ok(_store.Put(request, id));
         });
 
@@ -96,9 +101,9 @@ public sealed class ApiService
                 return Results.BadRequest(new { error = idError });
             }
 
-            if (string.Equals(id, "clock", StringComparison.OrdinalIgnoreCase))
+            if (StatusStore.IsReservedId(id))
             {
-                return Results.BadRequest(new { error = "the built-in clock item cannot be deleted" });
+                return Results.BadRequest(new { error = $"'{id}' is reserved for a built-in item" });
             }
 
             return _store.Delete(id, out _) ? Results.NoContent() : Results.NotFound();

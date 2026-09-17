@@ -16,7 +16,7 @@ public partial class CompactView : UserControl
     public void ShowItem(StatusItem item, bool pinned)
     {
         var secondary = string.IsNullOrWhiteSpace(item.SecondaryText) ? string.Empty : $" · {item.SecondaryText}";
-        CompactText.Text = $"{item.Title}  ●  {item.Text}{secondary}";
+        CompactText.Text = $"{item.Title}  {item.Text}{secondary}";
         PinGlyph.Text = pinned ? "◆" : "◇";
         PinButton.ToolTip = pinned ? "Unpin" : "Pin";
     }
