@@ -33,6 +33,8 @@
         <SolidColorBrush x:Key="MutedText" Color="#8D99AA" />
         <SolidColorBrush x:Key="Accent" Color="#8DE7BC" />
         <SolidColorBrush x:Key="AccentSoft" Color="#2A8DE7BC" />
+        <SolidColorBrush x:Key="BuiltInAccent" Color="#A4B2C6" />
+        <SolidColorBrush x:Key="BuiltInAccentSoft" Color="#24A4B2C6" />
         <SolidColorBrush x:Key="AccentBlue" Color="#94BAFF" />
         <SolidColorBrush x:Key="NotificationAccent" Color="#F2C978" />
         <SolidColorBrush x:Key="NotificationAccentSoft" Color="#2CF2C978" />
