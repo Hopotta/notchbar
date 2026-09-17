@@ -34,9 +34,54 @@ public partial class MainWindow : Window, IDisposable
         ApplyVisualState(_stateMachine.Current);
     }
 
+    public event EventHandler? PinStateChanged;
+
+    public bool IsPinned => _stateMachine.IsPinned;
+
     public void ShowApiError(string message)
     {
         Debug.WriteLine($"NotchBar API failed to start: {message}");
+    }
+
+    public void ShowFromExternal()
+    {
+        if (_disposed || Dispatcher.HasShutdownStarted)
+        {
+            return;
+        }
+
+        if (!Dispatcher.CheckAccess())
+        {
+            _ = Dispatcher.BeginInvoke(ShowFromExternal);
+            return;
+        }
+
+        _autoHideService.Cancel();
+        if (_stateMachine.Current == NotchState.Hidden)
+        {
+            _stateMachine.Set(NotchState.Compact);
+        }
+
+        if (!_stateMachine.IsPinned)
+        {
+            _autoHideService.ScheduleHide();
+        }
+    }
+
+    public void TogglePinnedFromExternal()
+    {
+        if (_disposed || Dispatcher.HasShutdownStarted)
+        {
+            return;
+        }
+
+        if (!Dispatcher.CheckAccess())
+        {
+            _ = Dispatcher.BeginInvoke(TogglePinnedFromExternal);
+            return;
+        }
+
+        TogglePinnedCore();
     }
 
     private void Window_OnSourceInitialized(object? sender, EventArgs e)
@@ -58,8 +103,13 @@ public partial class MainWindow : Window, IDisposable
             return;
         }
 
+        var wasPinned = _stateMachine.IsPinned;
         _autoHideService.Cancel();
         _stateMachine.ToggleVisibility();
+        if (wasPinned != _stateMachine.IsPinned)
+        {
+            PinStateChanged?.Invoke(this, EventArgs.Empty);
+        }
     }
 
     private void HotkeyService_OnRegistrationFailed(object? sender, EventArgs e)
@@ -107,13 +157,22 @@ public partial class MainWindow : Window, IDisposable
 
     private void Pin_OnClicked(object? sender, EventArgs e)
     {
-        if (_disposed)
+        if (!_disposed)
         {
-            return;
+            TogglePinnedCore();
         }
+    }
 
+    private void TogglePinnedCore()
+    {
         _autoHideService.Cancel();
         _stateMachine.TogglePinned();
+        PinStateChanged?.Invoke(this, EventArgs.Empty);
+
+        if (!_stateMachine.IsPinned)
+        {
+            _autoHideService.ScheduleHide();
+        }
     }
 
     private void StateMachine_OnStateChanged(object? sender, NotchStateChangedEventArgs e)
