@@ -64,7 +64,7 @@
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="ProgressBar">
-                        <Grid ClipToBounds="True">
+                        <Grid x:Name="PART_Track" ClipToBounds="True">
                             <Border Background="{TemplateBinding Background}"
                                     CornerRadius="3" />
                             <Grid x:Name="PART_Indicator"
