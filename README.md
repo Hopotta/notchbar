@@ -62,7 +62,7 @@ The file is created with defaults on first launch. Supported settings are:
 
 `apiPort` is accepted from 1024 through 65535 and `autoHideDelayMs` from 100 through 10000. Invalid values and malformed hotkeys fall back to safe defaults. A malformed JSON file is ignored rather than preventing NotchBar from starting.
 
-The `hideInFullscreen` setting is persisted now for forward compatibility; fullscreen suppression itself is planned for the next daily-driver milestone.
+When `hideInFullscreen` is enabled, NotchBar polls the foreground window and suppresses the island while a window covers the full bounds of the primary display. Suppression does not overwrite the current Compact / Expanded / Pinned state, so pinned content returns after fullscreen exits. The detector is intentionally lightweight and currently uses a bounds-based heuristic rather than app-specific game or media detection.
 
 ## Tray, startup, and single-instance behavior
 
@@ -182,12 +182,12 @@ The script sends a demo status through `PUT /api/v1/items/demo` with a 10-second
 
 - The current version targets the primary display only. Coordinates are calculated through WPF `SystemParameters` rather than hard-coded screen values.
 - Settings are file-based; there is no graphical settings window yet.
-- Fullscreen applications do not currently suppress the island, although the preference is already persisted.
-- Changes to the API port or hotkey require an app restart.
+- Fullscreen suppression currently targets only fullscreen windows on the primary display and uses a foreground-window bounds heuristic.
+- Changes to the API port, hotkey, or `hideInFullscreen` preference require an app restart.
 - The UI displays one best item selected by priority and update time rather than implementing a multi-card layout system.
 - The API is loopback-only and currently has no authentication. Do not change the listener to a remote network interface without adding an explicit security design.
 - There is no display-following behavior, Plugin SDK, Widget Marketplace, script runtime, or Event Bus.
 
 ## Possible future work
 
-The next daily-driver work is fullscreen suppression, followed by multi-monitor / DPI-aware positioning. A graphical settings surface, richer notification actions, status history, and additional visual themes can follow after those lifecycle basics are stable.
+The next platform-level work is multi-monitor / DPI-aware positioning. A graphical settings surface, richer notification actions, status history, and additional visual themes can follow after those lifecycle basics are stable.
