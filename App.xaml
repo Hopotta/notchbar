@@ -4,24 +4,46 @@
              ShutdownMode="OnMainWindowClose">
     <Application.Resources>
         <LinearGradientBrush x:Key="IslandBackground" StartPoint="0,0" EndPoint="0,1">
-            <GradientStop Color="#FA181B23" Offset="0" />
-            <GradientStop Color="#FA0E1016" Offset="1" />
+            <GradientStop Color="#D8212834" Offset="0" />
+            <GradientStop Color="#E3171C26" Offset="0.52" />
+            <GradientStop Color="#EA10141D" Offset="1" />
         </LinearGradientBrush>
-        <SolidColorBrush x:Key="IslandBorder" Color="#30FFFFFF" />
-        <SolidColorBrush x:Key="InnerHairline" Color="#16FFFFFF" />
-        <SolidColorBrush x:Key="PanelBackground" Color="#12FFFFFF" />
-        <SolidColorBrush x:Key="SurfaceRaised" Color="#18FFFFFF" />
-        <SolidColorBrush x:Key="SurfaceHover" Color="#28FFFFFF" />
-        <SolidColorBrush x:Key="SurfacePressed" Color="#38FFFFFF" />
-        <SolidColorBrush x:Key="PrimaryText" Color="#F6F8FC" />
-        <SolidColorBrush x:Key="SecondaryText" Color="#B7C0CE" />
-        <SolidColorBrush x:Key="MutedText" Color="#7B8799" />
-        <SolidColorBrush x:Key="Accent" Color="#86E7B2" />
-        <SolidColorBrush x:Key="AccentSoft" Color="#2486E7B2" />
-        <SolidColorBrush x:Key="AccentBlue" Color="#82AEFF" />
-        <SolidColorBrush x:Key="NotificationAccent" Color="#F0C66E" />
-        <SolidColorBrush x:Key="NotificationAccentSoft" Color="#24F0C66E" />
-        <SolidColorBrush x:Key="ProgressTrack" Color="#22FFFFFF" />
+        <LinearGradientBrush x:Key="GlassSheen" StartPoint="0,0" EndPoint="0,1">
+            <GradientStop Color="#16FFFFFF" Offset="0" />
+            <GradientStop Color="#08FFFFFF" Offset="0.42" />
+            <GradientStop Color="#00FFFFFF" Offset="1" />
+        </LinearGradientBrush>
+        <LinearGradientBrush x:Key="PanelBackground" StartPoint="0,0" EndPoint="0,1">
+            <GradientStop Color="#28FFFFFF" Offset="0" />
+            <GradientStop Color="#12FFFFFF" Offset="1" />
+        </LinearGradientBrush>
+        <LinearGradientBrush x:Key="GlassChipBackground" StartPoint="0,0" EndPoint="0,1">
+            <GradientStop Color="#30FFFFFF" Offset="0" />
+            <GradientStop Color="#18FFFFFF" Offset="1" />
+        </LinearGradientBrush>
+        <SolidColorBrush x:Key="IslandBorder" Color="#4AFFFFFF" />
+        <SolidColorBrush x:Key="GlassEdge" Color="#35FFFFFF" />
+        <SolidColorBrush x:Key="InnerHairline" Color="#24FFFFFF" />
+        <SolidColorBrush x:Key="PanelBorder" Color="#30FFFFFF" />
+        <SolidColorBrush x:Key="SurfaceRaised" Color="#20FFFFFF" />
+        <SolidColorBrush x:Key="SurfaceHover" Color="#34FFFFFF" />
+        <SolidColorBrush x:Key="SurfacePressed" Color="#46FFFFFF" />
+        <SolidColorBrush x:Key="PrimaryText" Color="#F7F9FD" />
+        <SolidColorBrush x:Key="SecondaryText" Color="#C2CBD8" />
+        <SolidColorBrush x:Key="MutedText" Color="#8D99AA" />
+        <SolidColorBrush x:Key="Accent" Color="#8DE7BC" />
+        <SolidColorBrush x:Key="AccentSoft" Color="#2A8DE7BC" />
+        <SolidColorBrush x:Key="AccentBlue" Color="#94BAFF" />
+        <SolidColorBrush x:Key="NotificationAccent" Color="#F2C978" />
+        <SolidColorBrush x:Key="NotificationAccentSoft" Color="#2CF2C978" />
+        <SolidColorBrush x:Key="ProgressTrack" Color="#2AFFFFFF" />
+
+        <DropShadowEffect x:Key="IslandDepthShadow"
+                          Color="#05070D"
+                          BlurRadius="18"
+                          ShadowDepth="2"
+                          Direction="270"
+                          Opacity="0.34" />
 
         <Style x:Key="CompactButtonStyle" TargetType="Button">
             <Setter Property="Background" Value="Transparent" />
@@ -43,7 +65,7 @@
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver" Value="True">
                                 <Setter Property="Background" Value="{DynamicResource SurfaceHover}" />
-                                <Setter Property="BorderBrush" Value="{DynamicResource InnerHairline}" />
+                                <Setter Property="BorderBrush" Value="{DynamicResource GlassEdge}" />
                             </Trigger>
                             <Trigger Property="IsPressed" Value="True">
                                 <Setter Property="Background" Value="{DynamicResource SurfacePressed}" />
