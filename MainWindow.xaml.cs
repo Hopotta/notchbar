@@ -74,7 +74,7 @@ public partial class MainWindow : Window, IDisposable
 
         if (!_stateMachine.IsPinned && !_isFullscreenSuppressed)
         {
-            ScheduleHideForDisplayItem();
+            ScheduleHideForActiveContent();
         }
     }
 
@@ -159,7 +159,7 @@ public partial class MainWindow : Window, IDisposable
 
         if (!_isFullscreenSuppressed && !_stateMachine.IsPinned && _stateMachine.Current != NotchState.Hidden)
         {
-            ScheduleHideForDisplayItem();
+            ScheduleHideForActiveContent();
         }
     }
 
@@ -178,7 +178,7 @@ public partial class MainWindow : Window, IDisposable
     {
         if (!_disposed && !_isFullscreenSuppressed)
         {
-            _autoHideService.OnMouseLeave(GetAutoHideDelayForDisplayItem());
+            _autoHideService.OnMouseLeave(GetAutoHideDelayForActiveContent());
         }
     }
 
@@ -217,7 +217,7 @@ public partial class MainWindow : Window, IDisposable
 
         if (!_stateMachine.IsPinned && !_isFullscreenSuppressed)
         {
-            ScheduleHideForDisplayItem();
+            ScheduleHideForActiveContent();
         }
     }
 
@@ -270,28 +270,21 @@ public partial class MainWindow : Window, IDisposable
         {
             _autoHideService.Cancel();
             _stateMachine.Set(NotchState.Compact);
-            ScheduleHideForDisplayItem();
+            ScheduleHideForActiveContent();
         }
     }
 
-    private void ScheduleHideForDisplayItem()
+    private void ScheduleHideForActiveContent()
     {
-        _autoHideService.ScheduleHide(GetAutoHideDelayForDisplayItem());
+        _autoHideService.ScheduleHide(GetAutoHideDelayForActiveContent());
     }
 
-    private TimeSpan GetAutoHideDelayForDisplayItem()
+    private TimeSpan GetAutoHideDelayForActiveContent()
     {
-        var item = _statusStore.GetDisplayItem();
-        if (item is { IsNotification: true, TtlSeconds: > 0 })
-        {
-            var remaining = item.UpdatedAt.AddSeconds(item.TtlSeconds) - DateTimeOffset.UtcNow;
-            if (remaining > TimeSpan.Zero)
-            {
-                return remaining;
-            }
-        }
-
-        return _settings.AutoHideDelay;
+        var notificationLifetime = _statusStore.GetRemainingNotificationLifetime();
+        return notificationLifetime is { } remaining && remaining > TimeSpan.Zero
+            ? remaining
+            : _settings.AutoHideDelay;
     }
 
     private void RefreshItem()
