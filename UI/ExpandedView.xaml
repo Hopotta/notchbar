@@ -1,13 +1,12 @@
 <UserControl x:Class="NotchBar.UI.ExpandedView"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-             Height="230"
              Background="Transparent">
-    <Grid Margin="18,16,18,14">
+    <Grid x:Name="LayoutRoot" Margin="18,16,18,14">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
-            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
 
@@ -42,6 +41,7 @@
                            FontWeight="SemiBold"
                            TextTrimming="CharacterEllipsis" />
                 <TextBlock x:Name="SummaryText"
+                           MaxWidth="300"
                            Margin="0,2,0,0"
                            Foreground="{DynamicResource PrimaryText}"
                            FontSize="17"
@@ -83,12 +83,14 @@
                 CornerRadius="12">
             <StackPanel>
                 <TextBlock x:Name="DetailText"
+                           MaxWidth="480"
                            Foreground="{DynamicResource PrimaryText}"
                            FontSize="13.5"
                            LineHeight="19"
                            TextWrapping="Wrap"
                            MaxHeight="78" />
                 <TextBlock x:Name="SecondaryText"
+                           MaxWidth="480"
                            Margin="0,9,0,0"
                            Foreground="{DynamicResource SecondaryText}"
                            FontSize="11.5"

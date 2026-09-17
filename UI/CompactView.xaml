@@ -3,7 +3,7 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              Height="44"
              Background="Transparent">
-    <Grid Margin="13,0,8,0">
+    <Grid x:Name="LayoutRoot" Margin="13,0,8,0">
         <Grid.ColumnDefinitions>
             <ColumnDefinition Width="Auto" />
             <ColumnDefinition Width="Auto" />
@@ -46,6 +46,7 @@
 
         <TextBlock x:Name="SummaryText"
                    Grid.Column="2"
+                   MaxWidth="240"
                    Margin="10,0,10,0"
                    VerticalAlignment="Center"
                    Foreground="{DynamicResource PrimaryText}"

@@ -331,6 +331,11 @@ public partial class MainWindow : Window, IDisposable
 
         CompactContent.ShowItem(item, _stateMachine.IsPinned);
         ExpandedContent.ShowItem(item, _stateMachine.IsPinned);
+
+        var compactWidth = CompactContent.GetPreferredWidth();
+        var expandedWidth = Math.Max(ExpandedContent.GetPreferredWidth(), compactWidth + 36);
+        var expandedHeight = ExpandedContent.GetPreferredHeight(expandedWidth);
+        _windowController.SetPreferredSize(compactWidth, expandedWidth, expandedHeight);
     }
 
     private void TryRunPendingItemTransition()
@@ -398,6 +403,7 @@ public partial class MainWindow : Window, IDisposable
         _hotkeyService.RegistrationFailed -= HotkeyService_OnRegistrationFailed;
         _hotkeyService.Dispose();
         _autoHideService.Dispose();
+        _windowController.Dispose();
         _monitorPlacementService.Dispose();
         if (_fullscreenSuppressionService is not null)
         {

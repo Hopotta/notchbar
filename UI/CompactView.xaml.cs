@@ -7,6 +7,10 @@ namespace NotchBar.UI;
 
 public partial class CompactView : UserControl
 {
+    private const double MinPreferredWidth = 286;
+    private const double MaxPreferredWidth = 520;
+    private const double WidthStep = 4;
+
     public event EventHandler? PinClicked;
 
     public CompactView()
@@ -33,6 +37,14 @@ public partial class CompactView : UserControl
         PinGlyph.Fill = (MediaBrush)FindResource(pinned ? "Accent" : "SecondaryText");
         PinButton.ToolTip = pinned ? "Unpin" : "Pin";
     }
+
+    public double GetPreferredWidth()
+    {
+        LayoutRoot.Measure(new System.Windows.Size(double.PositiveInfinity, 44));
+        return Quantize(Math.Clamp(LayoutRoot.DesiredSize.Width + 4, MinPreferredWidth, MaxPreferredWidth));
+    }
+
+    private static double Quantize(double width) => Math.Ceiling(width / WidthStep) * WidthStep;
 
     private void PinButton_OnClick(object sender, RoutedEventArgs e)
     {

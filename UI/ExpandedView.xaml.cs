@@ -8,6 +8,12 @@ namespace NotchBar.UI;
 
 public partial class ExpandedView : UserControl
 {
+    private const double MinPreferredWidth = 360;
+    private const double MaxPreferredWidth = 560;
+    private const double MinPreferredHeight = 148;
+    private const double MaxPreferredHeight = 300;
+    private const double WidthStep = 4;
+
     private readonly DispatcherTimer _updatedTimer;
     private StatusItem? _currentItem;
 
@@ -54,6 +60,20 @@ public partial class ExpandedView : UserControl
         RefreshUpdatedText();
         UpdateTimerState();
     }
+
+    public double GetPreferredWidth()
+    {
+        LayoutRoot.Measure(new System.Windows.Size(double.PositiveInfinity, double.PositiveInfinity));
+        return Quantize(Math.Clamp(LayoutRoot.DesiredSize.Width + 4, MinPreferredWidth, MaxPreferredWidth));
+    }
+
+    public double GetPreferredHeight(double availableWidth)
+    {
+        LayoutRoot.Measure(new System.Windows.Size(Math.Max(1, availableWidth), double.PositiveInfinity));
+        return Math.Ceiling(Math.Clamp(LayoutRoot.DesiredSize.Height + 4, MinPreferredHeight, MaxPreferredHeight));
+    }
+
+    private static double Quantize(double width) => Math.Ceiling(width / WidthStep) * WidthStep;
 
     private void RefreshUpdatedText()
     {
