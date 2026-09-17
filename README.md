@@ -42,6 +42,12 @@ Mouse movement over the centered top trigger wakes `Compact`. Leaving the island
 
 `Ctrl + Alt + Space` toggles visibility. The shortcut is registered through Windows `RegisterHotKey` and unregistered during shutdown. If another application already owns the shortcut, NotchBar keeps mouse interaction available and writes the registration failure to debug output.
 
+## Tray and single-instance behavior
+
+NotchBar exposes a system tray icon with `Show`, `Pin` / `Unpin`, and `Exit` actions. Double-clicking the tray icon shows the island.
+
+Only one NotchBar instance is allowed per Windows session. Starting NotchBar again signals the existing process to show its island and then exits, instead of creating a second window or competing for the localhost API port.
+
 ## REST API
 
 Requests and responses use JSON. The API accepts status data only; it does not accept HTML, CSS, XAML, shell commands, or arbitrary UI descriptions.
@@ -99,7 +105,7 @@ Invoke-RestMethod `
     -Uri 'http://127.0.0.1:32145/api/v1/items/demo'
 ```
 
-The built-in `clock` item cannot be deleted.
+The built-in `clock` item cannot be deleted or overwritten.
 
 ### Send a one-shot notification
 
@@ -150,12 +156,14 @@ The script sends a demo status through `PUT /api/v1/items/demo` with a 10-second
 
 ## Current limitations
 
-- The first version targets the primary display only. Coordinates are calculated through WPF `SystemParameters` rather than hard-coded screen values.
-- The API port and hotkey are built-in defaults; there is no settings UI or persisted configuration yet.
+- The current version targets the primary display only. Coordinates are calculated through WPF `SystemParameters` rather than hard-coded screen values.
+- The API port and hotkey are built-in defaults; there is no persisted configuration yet.
+- Automatic startup registration is not implemented yet.
+- Fullscreen applications do not currently suppress the island.
 - The UI displays one best item selected by priority and update time rather than implementing a multi-card layout system.
 - The API is loopback-only and currently has no authentication. Do not change the listener to a remote network interface without adding an explicit security design.
-- There is no system tray menu, automatic startup registration, display-following behavior, Plugin SDK, Widget Marketplace, script runtime, or Event Bus.
+- There is no display-following behavior, Plugin SDK, Widget Marketplace, script runtime, or Event Bus.
 
 ## Possible future work
 
-After the MVP is validated, possible follow-up work includes a settings file and tray menu, configurable port and hotkey, multi-monitor following, richer notification actions, status history, and additional visual themes.
+The next daily-driver work is persisted settings, start-with-Windows support, fullscreen suppression, and later multi-monitor / DPI-aware positioning. Richer notification actions, status history, and additional visual themes can follow after those lifecycle basics are stable.
