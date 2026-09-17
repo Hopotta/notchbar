@@ -8,14 +8,17 @@ namespace NotchBar.UI;
 
 public partial class ExpandedView : UserControl
 {
-    private const double MinPreferredWidth = 360;
+    private const double SimpleMinPreferredWidth = 324;
+    private const double StandardMinPreferredWidth = 360;
     private const double MaxPreferredWidth = 560;
-    private const double MinPreferredHeight = 148;
+    private const double SimpleMinPreferredHeight = 118;
+    private const double StandardMinPreferredHeight = 148;
     private const double MaxPreferredHeight = 300;
     private const double WidthStep = 4;
 
     private readonly DispatcherTimer _updatedTimer;
     private StatusItem? _currentItem;
+    private bool _usesSimpleBody;
 
     public ExpandedView()
     {
@@ -38,19 +41,24 @@ public partial class ExpandedView : UserControl
         _currentItem = item;
         TitleText.Text = item.Title;
         SummaryText.Text = item.Text;
-        DetailText.Text = string.IsNullOrWhiteSpace(item.Detail) ? "No additional context" : item.Detail;
 
+        var detail = item.Detail?.Trim();
         var secondary = item.SecondaryText?.Trim();
-        SecondaryText.Text = secondary ?? string.Empty;
-        SecondaryText.Visibility = string.IsNullOrWhiteSpace(secondary)
-            ? Visibility.Collapsed
-            : Visibility.Visible;
+        var hasDetail = !string.IsNullOrWhiteSpace(detail);
+        var hasSecondary = !string.IsNullOrWhiteSpace(secondary);
+
+        _usesSimpleBody = item.IsBuiltIn && item.Progress is null;
+        ApplyBodyContent(detail, secondary, hasDetail, hasSecondary);
 
         ProgressBar.Visibility = item.Progress is null ? Visibility.Collapsed : Visibility.Visible;
         ProgressBar.Value = item.Progress ?? 0;
 
-        var accentKey = item.IsNotification ? "NotificationAccent" : "Accent";
-        var haloKey = item.IsNotification ? "NotificationAccentSoft" : "AccentSoft";
+        var accentKey = item.IsNotification
+            ? "NotificationAccent"
+            : item.IsBuiltIn ? "BuiltInAccent" : "Accent";
+        var haloKey = item.IsNotification
+            ? "NotificationAccentSoft"
+            : item.IsBuiltIn ? "BuiltInAccentSoft" : "AccentSoft";
         StatusDot.Fill = (MediaBrush)FindResource(accentKey);
         StatusHalo.Background = (MediaBrush)FindResource(haloKey);
 
@@ -64,13 +72,51 @@ public partial class ExpandedView : UserControl
     public double GetPreferredWidth()
     {
         LayoutRoot.Measure(new System.Windows.Size(double.PositiveInfinity, double.PositiveInfinity));
-        return Quantize(Math.Clamp(LayoutRoot.DesiredSize.Width + 4, MinPreferredWidth, MaxPreferredWidth));
+        var minWidth = _usesSimpleBody ? SimpleMinPreferredWidth : StandardMinPreferredWidth;
+        return Quantize(Math.Clamp(LayoutRoot.DesiredSize.Width + 4, minWidth, MaxPreferredWidth));
     }
 
     public double GetPreferredHeight(double availableWidth)
     {
         LayoutRoot.Measure(new System.Windows.Size(Math.Max(1, availableWidth), double.PositiveInfinity));
-        return Math.Ceiling(Math.Clamp(LayoutRoot.DesiredSize.Height + 4, MinPreferredHeight, MaxPreferredHeight));
+        var minHeight = _usesSimpleBody ? SimpleMinPreferredHeight : StandardMinPreferredHeight;
+        return Math.Ceiling(Math.Clamp(LayoutRoot.DesiredSize.Height + 4, minHeight, MaxPreferredHeight));
+    }
+
+    private void ApplyBodyContent(
+        string? detail,
+        string? secondary,
+        bool hasDetail,
+        bool hasSecondary)
+    {
+        var hasBodyContent = hasDetail || hasSecondary;
+        BodyHost.Visibility = hasBodyContent ? Visibility.Visible : Visibility.Collapsed;
+
+        if (_usesSimpleBody)
+        {
+            SimpleBody.Visibility = hasBodyContent ? Visibility.Visible : Visibility.Collapsed;
+            DetailPanel.Visibility = Visibility.Collapsed;
+
+            SimpleSecondaryText.Text = secondary ?? string.Empty;
+            SimpleSecondaryText.Visibility = hasSecondary ? Visibility.Visible : Visibility.Collapsed;
+            SimpleDetailText.Text = detail ?? string.Empty;
+            SimpleDetailText.Visibility = hasDetail ? Visibility.Visible : Visibility.Collapsed;
+            SimpleDetailText.Margin = hasSecondary && hasDetail
+                ? new Thickness(0, 3, 0, 0)
+                : new Thickness(0);
+            return;
+        }
+
+        SimpleBody.Visibility = Visibility.Collapsed;
+        DetailPanel.Visibility = hasBodyContent ? Visibility.Visible : Visibility.Collapsed;
+
+        DetailText.Text = detail ?? string.Empty;
+        DetailText.Visibility = hasDetail ? Visibility.Visible : Visibility.Collapsed;
+        SecondaryText.Text = secondary ?? string.Empty;
+        SecondaryText.Visibility = hasSecondary ? Visibility.Visible : Visibility.Collapsed;
+        SecondaryText.Margin = hasDetail && hasSecondary
+            ? new Thickness(0, 9, 0, 0)
+            : new Thickness(0);
     }
 
     private static double Quantize(double width) => Math.Ceiling(width / WidthStep) * WidthStep;
