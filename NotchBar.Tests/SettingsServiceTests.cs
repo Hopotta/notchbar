@@ -116,6 +116,8 @@ public sealed class SettingsServiceTests : IDisposable
     [InlineData("")]
     [InlineData("Ctrl+Banana+Space")]
     [InlineData("Ctrl+NotAKey")]
+    [InlineData("999")]
+    [InlineData("Ctrl+999")]
     public void TryParseHotkey_RejectsInvalidForms(string value)
     {
         Assert.False(SettingsService.TryParseHotkey(value, out _, out _));
