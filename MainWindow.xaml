@@ -40,8 +40,16 @@
                     Opacity="0.42"
                     CornerRadius="1" />
 
-            <ui:CompactView x:Name="CompactContent" Visibility="Collapsed" />
-            <ui:ExpandedView x:Name="ExpandedContent" Visibility="Collapsed" />
+            <ui:CompactView x:Name="CompactContent" Visibility="Collapsed">
+                <ui:CompactView.RenderTransform>
+                    <TranslateTransform x:Name="CompactContentTranslate" />
+                </ui:CompactView.RenderTransform>
+            </ui:CompactView>
+            <ui:ExpandedView x:Name="ExpandedContent" Visibility="Collapsed">
+                <ui:ExpandedView.RenderTransform>
+                    <TranslateTransform x:Name="ExpandedContentTranslate" />
+                </ui:ExpandedView.RenderTransform>
+            </ui:ExpandedView>
         </Grid>
     </Border>
 </Window>
