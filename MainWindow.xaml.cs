@@ -1,6 +1,8 @@
 using System.Diagnostics;
 using System.Windows;
 using System.Windows.Input;
+using System.Windows.Media.Animation;
+using System.Windows.Media;
 using NotchBar.Core;
 using NotchBar.Services;
 
@@ -8,6 +10,8 @@ namespace NotchBar;
 
 public partial class MainWindow : Window, IDisposable
 {
+    private static readonly Duration ItemTransitionDuration = new(TimeSpan.FromMilliseconds(140));
+
     private readonly StatusStore _statusStore;
     private readonly SettingsService _settings;
     private readonly NotchStateMachine _stateMachine = new();
@@ -16,6 +20,8 @@ public partial class MainWindow : Window, IDisposable
     private readonly AutoHideService _autoHideService;
     private readonly HotkeyService _hotkeyService = new();
     private readonly FullscreenSuppressionService? _fullscreenSuppressionService;
+    private string? _displayedItemId;
+    private bool _pendingItemTransition;
     private bool _isFullscreenSuppressed;
     private bool _disposed;
 
@@ -249,6 +255,7 @@ public partial class MainWindow : Window, IDisposable
         }
 
         RefreshItem();
+        TryRunPendingItemTransition();
         _windowController.Apply(visualState);
     }
 
@@ -295,8 +302,58 @@ public partial class MainWindow : Window, IDisposable
             return;
         }
 
+        if (_displayedItemId is null)
+        {
+            _displayedItemId = item.Id;
+        }
+        else if (!string.Equals(_displayedItemId, item.Id, StringComparison.OrdinalIgnoreCase))
+        {
+            _displayedItemId = item.Id;
+            _pendingItemTransition = true;
+        }
+
         CompactContent.ShowItem(item, _stateMachine.IsPinned);
         ExpandedContent.ShowItem(item, _stateMachine.IsPinned);
+        TryRunPendingItemTransition();
+    }
+
+    private void TryRunPendingItemTransition()
+    {
+        if (!_pendingItemTransition || _isFullscreenSuppressed || _stateMachine.Current == NotchState.Hidden)
+        {
+            return;
+        }
+
+        FrameworkElement? target = _stateMachine.VisualState switch
+        {
+            NotchState.Compact when CompactContent.Visibility == Visibility.Visible => CompactContent,
+            NotchState.Expanded when ExpandedContent.Visibility == Visibility.Visible => ExpandedContent,
+            _ => null
+        };
+
+        TranslateTransform? translate = target switch
+        {
+            var element when ReferenceEquals(element, CompactContent) => CompactContentTranslate,
+            var element when ReferenceEquals(element, ExpandedContent) => ExpandedContentTranslate,
+            _ => null
+        };
+
+        if (target is null || translate is null)
+        {
+            return;
+        }
+
+        _pendingItemTransition = false;
+        var easing = new CubicEase { EasingMode = EasingMode.EaseOut };
+
+        target.BeginAnimation(OpacityProperty, new DoubleAnimation(0.45, 1, ItemTransitionDuration)
+        {
+            EasingFunction = easing
+        });
+        translate.BeginAnimation(TranslateTransform.YProperty, new DoubleAnimation(4, 0, ItemTransitionDuration)
+        {
+            EasingFunction = easing
+        });
     }
 
     private void Window_OnClosed(object? sender, EventArgs e)
