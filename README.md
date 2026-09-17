@@ -1,10 +1,10 @@
 # NotchBar
 
-NotchBar is a lightweight Windows top information island. It presents a small, borderless, always-on-top status bar centered at the top of the primary display. External programs push status data through a localhost REST API; NotchBar selects, displays, and expires that data instead of collecting business data itself.
+NotchBar is a lightweight Windows top information island. It presents a small, borderless, always-on-top status bar centered at the top of a configured display. External programs push status data through a localhost REST API; NotchBar selects, displays, and expires that data instead of collecting business data itself.
 
 ## Requirements
 
-- Windows
+- Windows 10 or later
 - .NET 10 SDK
 - WPF desktop support included with the .NET SDK
 
@@ -31,7 +31,7 @@ The API listens on `http://127.0.0.1:32145` by default. It binds only to the IPv
 
 NotchBar has four user-facing states:
 
-- `Hidden`: The window is moved above the screen and leaves only an approximately 2px trigger strip visible.
+- `Hidden`: The window is moved above the target display and leaves only an approximately 2px trigger strip visible.
 - `Compact`: A single-line summary is shown, for example `CC · Working · 128k · 18m`.
 - `Expanded`: The detail text, secondary text, progress, and update time are shown.
 - `Pinned`: The current Compact or Expanded visual state stays visible and does not auto-hide. Pinning changes the hide policy; it does not expand the content.
@@ -56,13 +56,27 @@ The file is created with defaults on first launch. Supported settings are:
   "autoHideDelayMs": 900,
   "hotkey": "Ctrl+Alt+Space",
   "startWithWindows": false,
-  "hideInFullscreen": true
+  "hideInFullscreen": true,
+  "monitorMode": "primary"
 }
 ```
 
 `apiPort` is accepted from 1024 through 65535 and `autoHideDelayMs` from 100 through 10000. Invalid values and malformed hotkeys fall back to safe defaults. A malformed JSON file is ignored rather than preventing NotchBar from starting.
 
-When `hideInFullscreen` is enabled, NotchBar polls the foreground window and suppresses the island while a window covers the full bounds of the primary display. Suppression does not overwrite the current Compact / Expanded / Pinned state, so pinned content returns after fullscreen exits. The detector is intentionally lightweight and currently uses a bounds-based heuristic rather than app-specific game or media detection.
+`monitorMode` accepts:
+
+- `primary`: keep NotchBar centered on the Windows primary display.
+- `activeWindow`: follow the display that contains the current foreground application. The foreground monitor is checked periodically, so switching focus between applications on different displays moves the island with the active work context.
+
+Changes to the API port, hotkey, fullscreen preference, or monitor mode currently require an app restart.
+
+## Multi-monitor and DPI behavior
+
+NotchBar declares Per-Monitor V2 DPI awareness. WPF continues to lay out the content in device-independent units, while the top-level window is positioned with native Win32 screen coordinates. This avoids treating physical monitor coordinates as WPF logical coordinates when displays use different scale factors such as 100%, 125%, or 150%.
+
+When moving between displays, the window is re-centered using the target display's real bounds. The current implementation supports primary-display placement and active-window following; selecting an arbitrary display by device name is intentionally deferred.
+
+When `hideInFullscreen` is enabled, NotchBar polls the foreground window and suppresses the island while that window covers the full bounds of the relevant display. In `primary` mode, only fullscreen windows on the primary display suppress the island. In `activeWindow` mode, fullscreen on the current foreground display suppresses it. Suppression does not overwrite the current Compact / Expanded / Pinned state, so pinned content returns after fullscreen exits. The detector intentionally uses a lightweight bounds heuristic rather than app-specific game or media detection.
 
 ## Tray, startup, and single-instance behavior
 
@@ -133,7 +147,7 @@ The built-in `clock` item cannot be deleted or overwritten.
 
 ### Send a one-shot notification
 
-A notification creates a short-lived item. Its default TTL is 8 seconds and it wakes Compact.
+A notification creates a short-lived item. Its default TTL is 8 seconds and it wakes Compact unless fullscreen suppression is currently active.
 
 ```powershell
 $notify = @{
@@ -180,14 +194,14 @@ The script sends a demo status through `PUT /api/v1/items/demo` with a 10-second
 
 ## Current limitations
 
-- The current version targets the primary display only. Coordinates are calculated through WPF `SystemParameters` rather than hard-coded screen values.
 - Settings are file-based; there is no graphical settings window yet.
-- Fullscreen suppression currently targets only fullscreen windows on the primary display and uses a foreground-window bounds heuristic.
-- Changes to the API port, hotkey, or `hideInFullscreen` preference require an app restart.
+- `monitorMode` currently supports only the primary display or active-window following; choosing a fixed non-primary display by device name is not implemented yet.
+- Display placement is polling-based rather than event-hook based.
+- Changes to the API port, hotkey, fullscreen preference, or monitor mode require an app restart.
 - The UI displays one best item selected by priority and update time rather than implementing a multi-card layout system.
 - The API is loopback-only and currently has no authentication. Do not change the listener to a remote network interface without adding an explicit security design.
-- There is no display-following behavior, Plugin SDK, Widget Marketplace, script runtime, or Event Bus.
+- There is no Plugin SDK, Widget Marketplace, script runtime, or Event Bus.
 
 ## Possible future work
 
-The next platform-level work is multi-monitor / DPI-aware positioning. A graphical settings surface, richer notification actions, status history, and additional visual themes can follow after those lifecycle basics are stable.
+The next product-level work is a small graphical settings surface and interaction polish around item transitions, relative update times, and notification behavior. Richer notification actions, status history, and additional visual themes can follow after those basics are stable.
