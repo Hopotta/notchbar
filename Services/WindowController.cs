@@ -8,9 +8,9 @@ namespace NotchBar.Services;
 
 public sealed class WindowController
 {
-    public const double WindowWidth = 400;
-    public const double CompactHeight = 38;
-    public const double ExpandedHeight = 224;
+    public const double WindowWidth = 424;
+    public const double CompactHeight = 44;
+    public const double ExpandedHeight = 230;
     public const double HiddenTriggerHeight = 2;
 
     private const uint SwpNoSize = 0x0001;
