@@ -4,7 +4,7 @@ using NotchBar.Services;
 
 namespace NotchBar;
 
-public partial class App : Application
+public partial class App : System.Windows.Application
 {
     private readonly CancellationTokenSource _lifetimeCts = new();
     private SingleInstanceService? _singleInstanceService;
