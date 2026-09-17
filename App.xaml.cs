@@ -17,6 +17,7 @@ public partial class App : System.Windows.Application
     private ApiService? _apiService;
     private Task? _apiStartTask;
     private MainWindow? _mainWindow;
+    private bool _restartRequested;
 
     protected override async void OnStartup(StartupEventArgs e)
     {
@@ -56,6 +57,8 @@ public partial class App : System.Windows.Application
         _trayService.ShowRequested += TrayService_OnShowRequested;
         _trayService.PinToggleRequested += TrayService_OnPinToggleRequested;
         _trayService.StartWithWindowsToggleRequested += TrayService_OnStartWithWindowsToggleRequested;
+        _trayService.OpenSettingsRequested += TrayService_OnOpenSettingsRequested;
+        _trayService.RestartRequested += TrayService_OnRestartRequested;
         _trayService.ExitRequested += TrayService_OnExitRequested;
         _trayService.SetPinned(_mainWindow.IsPinned);
         _trayService.SetStartWithWindows(_settingsService.StartWithWindows);
@@ -98,6 +101,20 @@ public partial class App : System.Windows.Application
         RunOnUi(ToggleStartWithWindows);
     }
 
+    private void TrayService_OnOpenSettingsRequested(object? sender, EventArgs e)
+    {
+        RunOnUi(OpenSettingsFile);
+    }
+
+    private void TrayService_OnRestartRequested(object? sender, EventArgs e)
+    {
+        RunOnUi(() =>
+        {
+            _restartRequested = true;
+            Shutdown();
+        });
+    }
+
     private void ToggleStartWithWindows()
     {
         if (_settingsService is null || _startupService is null)
@@ -125,6 +142,25 @@ public partial class App : System.Windows.Application
         }
 
         _trayService?.SetStartWithWindows(next);
+    }
+
+    private void OpenSettingsFile()
+    {
+        if (_settingsService is null)
+        {
+            return;
+        }
+
+        if (!File.Exists(_settingsService.SettingsPath) && !_settingsService.TrySave(out var saveError))
+        {
+            System.Diagnostics.Debug.WriteLine($"NotchBar settings could not be created before opening: {saveError}");
+            return;
+        }
+
+        if (!ApplicationLaunchService.TryOpenFile(_settingsService.SettingsPath, out var openError))
+        {
+            System.Diagnostics.Debug.WriteLine($"NotchBar settings could not be opened: {openError}");
+        }
     }
 
     private void TrayService_OnExitRequested(object? sender, EventArgs e)
@@ -163,6 +199,8 @@ public partial class App : System.Windows.Application
             _trayService.ShowRequested -= TrayService_OnShowRequested;
             _trayService.PinToggleRequested -= TrayService_OnPinToggleRequested;
             _trayService.StartWithWindowsToggleRequested -= TrayService_OnStartWithWindowsToggleRequested;
+            _trayService.OpenSettingsRequested -= TrayService_OnOpenSettingsRequested;
+            _trayService.RestartRequested -= TrayService_OnRestartRequested;
             _trayService.ExitRequested -= TrayService_OnExitRequested;
             _trayService.Dispose();
         }
@@ -202,6 +240,11 @@ public partial class App : System.Windows.Application
         {
             _singleInstanceService.ActivationRequested -= SingleInstanceService_OnActivationRequested;
             _singleInstanceService.Dispose();
+        }
+
+        if (_restartRequested && !ApplicationLaunchService.TryStartCurrentInstance(out var restartError))
+        {
+            System.Diagnostics.Debug.WriteLine($"NotchBar could not restart: {restartError}");
         }
 
         _lifetimeCts.Dispose();

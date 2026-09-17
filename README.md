@@ -68,7 +68,7 @@ The file is created with defaults on first launch. Supported settings are:
 - `primary`: keep NotchBar centered on the Windows primary display.
 - `activeWindow`: follow the display that contains the current foreground application. The foreground monitor is checked periodically, so switching focus between applications on different displays moves the island with the active work context.
 
-Changes to the API port, hotkey, fullscreen preference, or monitor mode currently require an app restart.
+Use the tray menu's `Open Settings` command to open this file with the Windows-associated editor. Changes to the API port, hotkey, fullscreen preference, or monitor mode require a restart; after saving the file, choose `Restart NotchBar` from the tray to shut down cleanly and relaunch with the new settings.
 
 ## Multi-monitor and DPI behavior
 
@@ -80,9 +80,11 @@ When `hideInFullscreen` is enabled, NotchBar polls the foreground window and sup
 
 ## Tray, startup, and single-instance behavior
 
-NotchBar exposes a system tray icon with `Show`, `Pin` / `Unpin`, `Start with Windows`, and `Exit` actions. Double-clicking the tray icon shows the island.
+NotchBar exposes a system tray icon with `Show`, `Pin` / `Unpin`, `Start with Windows`, `Open Settings`, `Restart NotchBar`, and `Exit` actions. Double-clicking the tray icon shows the island.
 
 `Start with Windows` creates a per-user entry under the Windows `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` key, so it does not require administrator rights. The preference is also stored in `settings.json`. If changing one side fails, NotchBar avoids silently leaving the setting half-applied.
+
+`Restart NotchBar` uses the same launch specification as Start with Windows. The current process first performs its normal shutdown sequence, including stopping the API and releasing the single-instance guard, and only then launches the replacement process. This avoids a restart being rejected as a duplicate instance. The launch helper supports both a published `NotchBar.exe` and development execution through `dotnet <NotchBar.dll>`.
 
 Only one NotchBar instance is allowed per Windows session. Starting NotchBar again signals the existing process to show its island and then exits, instead of creating a second window or competing for the localhost API port.
 
@@ -197,11 +199,11 @@ The script sends a demo status through `PUT /api/v1/items/demo` with a 10-second
 - Settings are file-based; there is no graphical settings window yet.
 - `monitorMode` currently supports only the primary display or active-window following; choosing a fixed non-primary display by device name is not implemented yet.
 - Display placement is polling-based rather than event-hook based.
-- Changes to the API port, hotkey, fullscreen preference, or monitor mode require an app restart.
+- Settings that affect live services still require a restart, although the tray now makes the edit-and-restart workflow direct.
 - The UI displays one best item selected by priority and update time rather than implementing a multi-card layout system.
 - The API is loopback-only and currently has no authentication. Do not change the listener to a remote network interface without adding an explicit security design.
 - There is no Plugin SDK, Widget Marketplace, script runtime, or Event Bus.
 
 ## Possible future work
 
-The next product-level work is a small graphical settings surface and interaction polish around item transitions, relative update times, and notification behavior. Richer notification actions, status history, and additional visual themes can follow after those basics are stable.
+The next product-level work is interaction polish around item transitions, relative update times, and notification behavior. A graphical settings surface can follow if the file-based tray workflow proves too limiting. Richer notification actions, status history, and additional visual themes can come later.
