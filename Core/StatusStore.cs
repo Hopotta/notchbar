@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Globalization;
 using Timer = System.Threading.Timer;
 
 namespace NotchBar.Core;
@@ -20,8 +21,8 @@ public sealed class StatusStore : IDisposable
         {
             Id = ClockId,
             Title = "Clock",
-            Text = now.ToString("HH:mm"),
-            SecondaryText = now.ToString("ddd, MMM d"),
+            Text = now.ToString("HH:mm", CultureInfo.InvariantCulture),
+            SecondaryText = now.ToString("ddd, MMM d", CultureInfo.InvariantCulture),
             Detail = "Local time",
             Priority = 0,
             TtlSeconds = 0,
@@ -145,9 +146,9 @@ public sealed class StatusStore : IDisposable
         {
             Id = ClockId,
             Title = "Clock",
-            Text = now.ToString("HH:mm"),
-            SecondaryText = now.ToString("ddd, MMM d"),
-            Detail = TimeZoneInfo.Local.DisplayName,
+            Text = now.ToString("HH:mm", CultureInfo.InvariantCulture),
+            SecondaryText = now.ToString("ddd, MMM d", CultureInfo.InvariantCulture),
+            Detail = "Local time",
             Priority = 0,
             TtlSeconds = 0,
             UpdatedAt = _timeProvider.GetUtcNow(),
