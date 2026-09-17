@@ -136,7 +136,7 @@ public partial class MainWindow : Window, IDisposable
         _windowController.SetSuppressed(_isFullscreenSuppressed);
         if (_isFullscreenSuppressed)
         {
-            _autoHideService.Cancel();
+            _autoHideService.ResetPointerState();
         }
 
         ApplyVisualState(_stateMachine.Current);
