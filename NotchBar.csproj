@@ -9,6 +9,7 @@
     <AssemblyName>NotchBar</AssemblyName>
     <RootNamespace>NotchBar</RootNamespace>
     <ApplicationManifest>app.manifest</ApplicationManifest>
+    <DefaultItemExcludes>$(DefaultItemExcludes);NotchBar.Tests\**</DefaultItemExcludes>
   </PropertyGroup>
 
   <ItemGroup>

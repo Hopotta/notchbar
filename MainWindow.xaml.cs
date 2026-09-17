@@ -163,6 +163,7 @@ public partial class MainWindow : Window, IDisposable
         {
             _autoHideService.Cancel();
             _stateMachine.Set(NotchState.Compact);
+            _autoHideService.ScheduleHide();
         }
     }
 

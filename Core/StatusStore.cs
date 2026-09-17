@@ -4,23 +4,27 @@ namespace NotchBar.Core;
 
 public sealed class StatusStore : IDisposable
 {
+    public const string ClockId = "clock";
+
     private readonly ConcurrentDictionary<string, StatusItem> _items = new(StringComparer.OrdinalIgnoreCase);
+    private readonly TimeProvider _timeProvider;
     private readonly Timer _expiryTimer;
     private bool _disposed;
 
-    public StatusStore()
+    public StatusStore(TimeProvider? timeProvider = null)
     {
+        _timeProvider = timeProvider ?? TimeProvider.System;
         var now = DateTime.Now;
-        _items["clock"] = new StatusItem
+        _items[ClockId] = new StatusItem
         {
-            Id = "clock",
+            Id = ClockId,
             Title = "Clock",
             Text = now.ToString("HH:mm"),
             SecondaryText = now.ToString("ddd, MMM d"),
             Detail = "Local time",
             Priority = 0,
             TtlSeconds = 0,
-            UpdatedAt = DateTimeOffset.UtcNow,
+            UpdatedAt = _timeProvider.GetUtcNow(),
             IsBuiltIn = true
         };
 
@@ -29,9 +33,12 @@ public sealed class StatusStore : IDisposable
 
     public event EventHandler<StatusStoreChangedEventArgs>? Changed;
 
+    public static bool IsReservedId(string? id) =>
+        string.Equals(id, ClockId, StringComparison.OrdinalIgnoreCase);
+
     public IReadOnlyList<StatusItem> GetActiveItems()
     {
-        var now = DateTimeOffset.UtcNow;
+        var now = _timeProvider.GetUtcNow();
         return _items.Values
             .Where(item => !item.IsExpired(now))
             .OrderByDescending(item => item.Priority)
@@ -47,6 +54,11 @@ public sealed class StatusStore : IDisposable
 
     public StatusItem Put(StatusItemRequest request, string id)
     {
+        if (IsReservedId(id))
+        {
+            throw new InvalidOperationException($"'{id}' is reserved for a built-in item");
+        }
+
         var item = new StatusItem
         {
             Id = id,
@@ -58,7 +70,7 @@ public sealed class StatusStore : IDisposable
             Priority = request.Priority ?? 50,
             TtlSeconds = request.TtlSeconds!.Value,
             WakeOnUpdate = request.WakeOnUpdate ?? false,
-            UpdatedAt = DateTimeOffset.UtcNow
+            UpdatedAt = _timeProvider.GetUtcNow()
         };
 
         _items[id] = item;
@@ -77,7 +89,7 @@ public sealed class StatusStore : IDisposable
             Priority = request.Priority ?? 60,
             TtlSeconds = request.TtlSeconds ?? 8,
             WakeOnUpdate = true,
-            UpdatedAt = DateTimeOffset.UtcNow
+            UpdatedAt = _timeProvider.GetUtcNow()
         };
 
         _items[item.Id] = item;
@@ -87,7 +99,7 @@ public sealed class StatusStore : IDisposable
 
     public bool Delete(string id, out StatusItem? removed)
     {
-        if (string.Equals(id, "clock", StringComparison.OrdinalIgnoreCase))
+        if (IsReservedId(id))
         {
             removed = null;
             return false;
@@ -106,18 +118,18 @@ public sealed class StatusStore : IDisposable
     {
         var item = new StatusItem
         {
-            Id = "clock",
+            Id = ClockId,
             Title = "Clock",
             Text = now.ToString("HH:mm"),
             SecondaryText = now.ToString("ddd, MMM d"),
             Detail = TimeZoneInfo.Local.DisplayName,
             Priority = 0,
             TtlSeconds = 0,
-            UpdatedAt = DateTimeOffset.UtcNow,
+            UpdatedAt = _timeProvider.GetUtcNow(),
             IsBuiltIn = true
         };
 
-        _items["clock"] = item;
+        _items[ClockId] = item;
         Changed?.Invoke(this, new StatusStoreChangedEventArgs(item, false, false));
     }
 
@@ -128,12 +140,13 @@ public sealed class StatusStore : IDisposable
             return;
         }
 
-        var now = DateTimeOffset.UtcNow;
+        var now = _timeProvider.GetUtcNow();
+        var collection = (ICollection<KeyValuePair<string, StatusItem>>)_items;
         foreach (var pair in _items)
         {
-            if (pair.Value.IsExpired(now) && _items.TryRemove(pair.Key, out var removed))
+            if (pair.Value.IsExpired(now) && collection.Remove(pair))
             {
-                Changed?.Invoke(this, new StatusStoreChangedEventArgs(removed, false, true));
+                Changed?.Invoke(this, new StatusStoreChangedEventArgs(pair.Value, false, true));
             }
         }
     }
