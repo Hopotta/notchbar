@@ -11,6 +11,12 @@ namespace NotchBar;
 public partial class MainWindow : Window, IDisposable
 {
     private static readonly Duration ItemTransitionDuration = new(TimeSpan.FromMilliseconds(140));
+    private static readonly Duration ExpandOutgoingDuration = new(TimeSpan.FromMilliseconds(90));
+    private static readonly Duration ExpandIncomingDuration = new(TimeSpan.FromMilliseconds(190));
+    private static readonly Duration CollapseOutgoingDuration = new(TimeSpan.FromMilliseconds(80));
+    private static readonly Duration CollapseIncomingDuration = new(TimeSpan.FromMilliseconds(150));
+    private static readonly TimeSpan ExpandIncomingDelay = TimeSpan.FromMilliseconds(70);
+    private static readonly TimeSpan CollapseIncomingDelay = TimeSpan.FromMilliseconds(45);
 
     private readonly StatusStore _statusStore;
     private readonly SettingsService _settings;
@@ -23,6 +29,8 @@ public partial class MainWindow : Window, IDisposable
     private readonly HotkeyService _hotkeyService = new();
     private readonly FullscreenSuppressionService? _fullscreenSuppressionService;
     private string? _displayedItemId;
+    private NotchState _renderedVisualState = NotchState.Hidden;
+    private long _layoutTransitionVersion;
     private bool _pendingItemTransition;
     private bool _isFullscreenSuppressed;
     private bool _disposed;
@@ -261,8 +269,6 @@ public partial class MainWindow : Window, IDisposable
         HiddenTrigger.Visibility = !_isFullscreenSuppressed && state == NotchState.Hidden
             ? Visibility.Visible
             : Visibility.Collapsed;
-        CompactContent.Visibility = visualState == NotchState.Compact ? Visibility.Visible : Visibility.Collapsed;
-        ExpandedContent.Visibility = visualState == NotchState.Expanded ? Visibility.Visible : Visibility.Collapsed;
 
         if (state is NotchState.Hidden or NotchState.Pinned || _isFullscreenSuppressed)
         {
@@ -270,8 +276,156 @@ public partial class MainWindow : Window, IDisposable
         }
 
         RefreshItem();
-        TryRunPendingItemTransition();
         _windowController.Apply(visualState);
+        ApplyContentVisualState(visualState);
+        TryRunPendingItemTransition();
+    }
+
+    private void ApplyContentVisualState(NotchState visualState)
+    {
+        if (_isFullscreenSuppressed || visualState == NotchState.Hidden)
+        {
+            SetContentStateImmediate(NotchState.Hidden);
+            _renderedVisualState = NotchState.Hidden;
+            return;
+        }
+
+        if (_renderedVisualState == visualState)
+        {
+            EnsureContentHostVisible(visualState);
+            return;
+        }
+
+        var canMorph = SystemParameters.ClientAreaAnimation
+            && _renderedVisualState is NotchState.Compact or NotchState.Expanded
+            && visualState is NotchState.Compact or NotchState.Expanded;
+
+        if (!canMorph)
+        {
+            SetContentStateImmediate(visualState);
+            _renderedVisualState = visualState;
+            return;
+        }
+
+        RunContentMorph(_renderedVisualState, visualState);
+        _renderedVisualState = visualState;
+        _pendingItemTransition = false;
+    }
+
+    private void RunContentMorph(NotchState previous, NotchState next)
+    {
+        var transitionVersion = ++_layoutTransitionVersion;
+        var expanding = next == NotchState.Expanded;
+
+        var outgoing = previous == NotchState.Compact ? CompactHost : ExpandedHost;
+        var incoming = next == NotchState.Compact ? CompactHost : ExpandedHost;
+        var outgoingTranslate = previous == NotchState.Compact ? CompactHostTranslate : ExpandedHostTranslate;
+        var incomingTranslate = next == NotchState.Compact ? CompactHostTranslate : ExpandedHostTranslate;
+
+        var incomingWasVisible = incoming.Visibility == Visibility.Visible;
+        StopHostAnimationsPreservingCurrent(outgoing, outgoingTranslate);
+        StopHostAnimationsPreservingCurrent(incoming, incomingTranslate);
+
+        var outgoingOpacity = outgoing.Opacity;
+        var outgoingY = outgoingTranslate.Y;
+        var incomingOpacity = incomingWasVisible ? incoming.Opacity : 0d;
+        var incomingY = incomingWasVisible ? incomingTranslate.Y : expanding ? 6d : -4d;
+
+        outgoing.Visibility = Visibility.Visible;
+        incoming.Visibility = Visibility.Visible;
+        outgoing.Opacity = outgoingOpacity;
+        outgoingTranslate.Y = outgoingY;
+        incoming.Opacity = incomingOpacity;
+        incomingTranslate.Y = incomingY;
+
+        var outgoingDuration = expanding ? ExpandOutgoingDuration : CollapseOutgoingDuration;
+        var incomingDuration = expanding ? ExpandIncomingDuration : CollapseIncomingDuration;
+        var incomingDelay = expanding ? ExpandIncomingDelay : CollapseIncomingDelay;
+        var outgoingTargetY = expanding ? -3d : 3d;
+        var incomingEase = new CubicEase { EasingMode = EasingMode.EaseOut };
+        var outgoingEase = new CubicEase { EasingMode = EasingMode.EaseInOut };
+
+        outgoing.BeginAnimation(OpacityProperty, new DoubleAnimation(outgoingOpacity, 0, outgoingDuration)
+        {
+            EasingFunction = outgoingEase,
+            FillBehavior = FillBehavior.HoldEnd
+        });
+        outgoingTranslate.BeginAnimation(TranslateTransform.YProperty, new DoubleAnimation(outgoingY, outgoingTargetY, outgoingDuration)
+        {
+            EasingFunction = outgoingEase,
+            FillBehavior = FillBehavior.HoldEnd
+        });
+
+        var incomingOpacityAnimation = new DoubleAnimation(incomingOpacity, 1, incomingDuration)
+        {
+            BeginTime = incomingDelay,
+            EasingFunction = incomingEase,
+            FillBehavior = FillBehavior.HoldEnd
+        };
+        incomingOpacityAnimation.Completed += (_, _) =>
+        {
+            if (_disposed || transitionVersion != _layoutTransitionVersion)
+            {
+                return;
+            }
+
+            StopHostAnimationsPreservingCurrent(outgoing, outgoingTranslate);
+            StopHostAnimationsPreservingCurrent(incoming, incomingTranslate);
+            outgoing.Visibility = Visibility.Collapsed;
+            outgoing.Opacity = 1;
+            outgoingTranslate.Y = 0;
+            incoming.Visibility = Visibility.Visible;
+            incoming.Opacity = 1;
+            incomingTranslate.Y = 0;
+        };
+
+        incoming.BeginAnimation(OpacityProperty, incomingOpacityAnimation);
+        incomingTranslate.BeginAnimation(TranslateTransform.YProperty, new DoubleAnimation(incomingY, 0, incomingDuration)
+        {
+            BeginTime = incomingDelay,
+            EasingFunction = incomingEase,
+            FillBehavior = FillBehavior.HoldEnd
+        });
+    }
+
+    private void SetContentStateImmediate(NotchState visualState)
+    {
+        _layoutTransitionVersion++;
+        ResetHost(CompactHost, CompactHostTranslate);
+        ResetHost(ExpandedHost, ExpandedHostTranslate);
+
+        CompactHost.Visibility = visualState == NotchState.Compact ? Visibility.Visible : Visibility.Collapsed;
+        ExpandedHost.Visibility = visualState == NotchState.Expanded ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    private void EnsureContentHostVisible(NotchState visualState)
+    {
+        if (visualState == NotchState.Compact && CompactHost.Visibility != Visibility.Visible)
+        {
+            SetContentStateImmediate(visualState);
+        }
+        else if (visualState == NotchState.Expanded && ExpandedHost.Visibility != Visibility.Visible)
+        {
+            SetContentStateImmediate(visualState);
+        }
+    }
+
+    private static void StopHostAnimationsPreservingCurrent(FrameworkElement host, TranslateTransform translate)
+    {
+        var opacity = host.Opacity;
+        var y = translate.Y;
+        host.BeginAnimation(OpacityProperty, null);
+        translate.BeginAnimation(TranslateTransform.YProperty, null);
+        host.Opacity = opacity;
+        translate.Y = y;
+    }
+
+    private static void ResetHost(FrameworkElement host, TranslateTransform translate)
+    {
+        host.BeginAnimation(OpacityProperty, null);
+        translate.BeginAnimation(TranslateTransform.YProperty, null);
+        host.Opacity = 1;
+        translate.Y = 0;
     }
 
     private void StatusStore_OnChanged(object? sender, StatusStoreChangedEventArgs e)
@@ -353,8 +507,8 @@ public partial class MainWindow : Window, IDisposable
 
         FrameworkElement? target = _stateMachine.VisualState switch
         {
-            NotchState.Compact when CompactContent.Visibility == Visibility.Visible => CompactContent,
-            NotchState.Expanded when ExpandedContent.Visibility == Visibility.Visible => ExpandedContent,
+            NotchState.Compact when CompactHost.Visibility == Visibility.Visible => CompactContent,
+            NotchState.Expanded when ExpandedHost.Visibility == Visibility.Visible => ExpandedContent,
             _ => null
         };
 

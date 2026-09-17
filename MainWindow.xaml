@@ -46,8 +46,19 @@
                     Opacity="0.42"
                     CornerRadius="1" />
 
-            <ui:CompactView x:Name="CompactContent" Visibility="Collapsed" />
-            <ui:ExpandedView x:Name="ExpandedContent" Visibility="Collapsed" />
+            <Grid x:Name="CompactHost" Visibility="Collapsed">
+                <Grid.RenderTransform>
+                    <TranslateTransform x:Name="CompactHostTranslate" />
+                </Grid.RenderTransform>
+                <ui:CompactView x:Name="CompactContent" />
+            </Grid>
+
+            <Grid x:Name="ExpandedHost" Visibility="Collapsed">
+                <Grid.RenderTransform>
+                    <TranslateTransform x:Name="ExpandedHostTranslate" />
+                </Grid.RenderTransform>
+                <ui:ExpandedView x:Name="ExpandedContent" />
+            </Grid>
         </Grid>
     </Border>
 </Window>

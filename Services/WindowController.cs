@@ -13,6 +13,10 @@ public sealed class WindowController : IDisposable
     public const double DefaultExpandedHeight = 230;
     public const double HiddenTriggerHeight = 2;
 
+    private static readonly Duration ExpandDuration = new(TimeSpan.FromMilliseconds(280));
+    private static readonly Duration CollapseDuration = new(TimeSpan.FromMilliseconds(220));
+    private static readonly Duration ContentResizeDuration = new(TimeSpan.FromMilliseconds(180));
+
     private const double MinCompactWidth = 286;
     private const double MaxCompactWidth = 520;
     private const double MinExpandedWidth = 360;
@@ -79,36 +83,88 @@ public sealed class WindowController : IDisposable
 
     public void Apply(NotchState state)
     {
+        var previousState = _lastState;
         _lastState = state;
+
         var targetWidth = GetTargetWidth(state);
         var targetHeight = GetTargetHeight(state);
 
-        if (Math.Abs(_window.Width - targetWidth) > 0.5)
-        {
-            _window.BeginAnimation(FrameworkElement.WidthProperty, null);
-            _window.Width = targetWidth;
-        }
-
-        if (state == NotchState.Hidden)
-        {
-            _window.BeginAnimation(FrameworkElement.HeightProperty, null);
-            _window.Height = CompactHeight;
-        }
-        else if (Math.Abs(_window.Height - targetHeight) > 0.5)
-        {
-            _window.BeginAnimation(FrameworkElement.HeightProperty, new DoubleAnimation(targetHeight, new Duration(TimeSpan.FromMilliseconds(180)))
-            {
-                EasingFunction = new QuadraticEase { EasingMode = EasingMode.EaseOut }
-            });
-        }
-
         if (_handle == IntPtr.Zero)
         {
+            SetDimensionsImmediate(targetWidth, state == NotchState.Hidden ? CompactHeight : targetHeight);
             ApplyFallbackPosition(state);
             return;
         }
 
+        if (state == NotchState.Hidden)
+        {
+            SetDimensionsImmediate(targetWidth, CompactHeight);
+            PositionNative(state);
+            return;
+        }
+
+        var isStateMorph = previousState != state && previousState != NotchState.Hidden;
+        var duration = isStateMorph
+            ? state is NotchState.Expanded or NotchState.Pinned ? ExpandDuration : CollapseDuration
+            : ContentResizeDuration;
+        var easing = CreateMorphEasing(state, isStateMorph);
+        var animate = SystemParameters.ClientAreaAnimation && !_isSuppressed;
+
+        AnimateDimension(FrameworkElement.WidthProperty, _window.ActualWidth, targetWidth, duration, easing, animate);
+        AnimateDimension(FrameworkElement.HeightProperty, _window.ActualHeight, targetHeight, duration, easing, animate);
         PositionNative(state);
+    }
+
+    private static IEasingFunction CreateMorphEasing(NotchState state, bool isStateMorph)
+    {
+        if (!isStateMorph)
+        {
+            return new CubicEase { EasingMode = EasingMode.EaseOut };
+        }
+
+        return state is NotchState.Expanded or NotchState.Pinned
+            ? new QuinticEase { EasingMode = EasingMode.EaseOut }
+            : new CubicEase { EasingMode = EasingMode.EaseInOut };
+    }
+
+    private void AnimateDimension(
+        DependencyProperty property,
+        double current,
+        double target,
+        Duration duration,
+        IEasingFunction easing,
+        bool animate)
+    {
+        if (!double.IsFinite(current) || current <= 0)
+        {
+            current = target;
+        }
+
+        _window.BeginAnimation(property, null);
+        _window.SetValue(property, current);
+
+        if (!animate || Math.Abs(current - target) <= 0.5)
+        {
+            _window.SetValue(property, target);
+            return;
+        }
+
+        var animation = new DoubleAnimation(current, target, duration)
+        {
+            EasingFunction = easing,
+            FillBehavior = FillBehavior.Stop
+        };
+
+        _window.BeginAnimation(property, animation, HandoffBehavior.SnapshotAndReplace);
+        _window.SetValue(property, target);
+    }
+
+    private void SetDimensionsImmediate(double width, double height)
+    {
+        _window.BeginAnimation(FrameworkElement.WidthProperty, null);
+        _window.BeginAnimation(FrameworkElement.HeightProperty, null);
+        _window.Width = width;
+        _window.Height = height;
     }
 
     private double GetTargetWidth(NotchState state) =>
