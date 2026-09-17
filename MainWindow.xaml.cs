@@ -11,6 +11,7 @@ public partial class MainWindow : Window, IDisposable
     private readonly StatusStore _statusStore;
     private readonly SettingsService _settings;
     private readonly NotchStateMachine _stateMachine = new();
+    private readonly MonitorPlacementService _monitorPlacementService;
     private readonly WindowController _windowController;
     private readonly AutoHideService _autoHideService;
     private readonly HotkeyService _hotkeyService = new();
@@ -24,14 +25,16 @@ public partial class MainWindow : Window, IDisposable
         _settings = settings;
         InitializeComponent();
 
-        _windowController = new WindowController(this);
+        _monitorPlacementService = new MonitorPlacementService(_settings.MonitorMode);
+        _windowController = new WindowController(this, _monitorPlacementService.Current);
         _autoHideService = new AutoHideService(_stateMachine, _settings.AutoHideDelay);
         if (_settings.HideInFullscreen)
         {
-            _fullscreenSuppressionService = new FullscreenSuppressionService();
+            _fullscreenSuppressionService = new FullscreenSuppressionService(_settings.MonitorMode);
             _fullscreenSuppressionService.Changed += FullscreenSuppressionService_OnChanged;
         }
 
+        _monitorPlacementService.Changed += MonitorPlacementService_OnChanged;
         _stateMachine.StateChanged += StateMachine_OnStateChanged;
         _statusStore.Changed += StatusStore_OnChanged;
         CompactContent.PinClicked += Pin_OnClicked;
@@ -69,7 +72,7 @@ public partial class MainWindow : Window, IDisposable
             _stateMachine.Set(NotchState.Compact);
         }
 
-        if (!_stateMachine.IsPinned)
+        if (!_stateMachine.IsPinned && !_isFullscreenSuppressed)
         {
             _autoHideService.ScheduleHide();
         }
@@ -98,10 +101,23 @@ public partial class MainWindow : Window, IDisposable
             return;
         }
 
+        _windowController.Attach();
+        _monitorPlacementService.Start();
         _hotkeyService.Pressed += HotkeyService_OnPressed;
         _hotkeyService.RegistrationFailed += HotkeyService_OnRegistrationFailed;
         _hotkeyService.Attach(this, _settings.HotkeyModifiers, _settings.HotkeyKey);
         _fullscreenSuppressionService?.Start();
+    }
+
+    private void MonitorPlacementService_OnChanged(object? sender, MonitorTargetChangedEventArgs e)
+    {
+        if (_disposed)
+        {
+            return;
+        }
+
+        _windowController.SetMonitor(e.Target);
+        ApplyVisualState(_stateMachine.Current);
     }
 
     private void HotkeyService_OnPressed(object? sender, EventArgs e)
@@ -199,7 +215,7 @@ public partial class MainWindow : Window, IDisposable
         _stateMachine.TogglePinned();
         PinStateChanged?.Invoke(this, EventArgs.Empty);
 
-        if (!_stateMachine.IsPinned)
+        if (!_stateMachine.IsPinned && !_isFullscreenSuppressed)
         {
             _autoHideService.ScheduleHide();
         }
@@ -250,7 +266,7 @@ public partial class MainWindow : Window, IDisposable
         }
 
         RefreshItem();
-        if (e.WakeOnUpdate && !_stateMachine.IsPinned)
+        if (e.WakeOnUpdate && !_stateMachine.IsPinned && !_isFullscreenSuppressed)
         {
             _autoHideService.Cancel();
             _stateMachine.Set(NotchState.Compact);
@@ -285,12 +301,14 @@ public partial class MainWindow : Window, IDisposable
         _disposed = true;
         _statusStore.Changed -= StatusStore_OnChanged;
         _stateMachine.StateChanged -= StateMachine_OnStateChanged;
+        _monitorPlacementService.Changed -= MonitorPlacementService_OnChanged;
         CompactContent.PinClicked -= Pin_OnClicked;
         ExpandedContent.PinClicked -= Pin_OnClicked;
         _hotkeyService.Pressed -= HotkeyService_OnPressed;
         _hotkeyService.RegistrationFailed -= HotkeyService_OnRegistrationFailed;
         _hotkeyService.Dispose();
         _autoHideService.Dispose();
+        _monitorPlacementService.Dispose();
         if (_fullscreenSuppressionService is not null)
         {
             _fullscreenSuppressionService.Changed -= FullscreenSuppressionService_OnChanged;

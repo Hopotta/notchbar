@@ -21,6 +21,7 @@ public sealed class SettingsServiceTests : IDisposable
         Assert.Equal(Key.Space, settings.HotkeyKey);
         Assert.False(settings.StartWithWindows);
         Assert.True(settings.HideInFullscreen);
+        Assert.Equal(MonitorPlacementMode.Primary, settings.MonitorMode);
     }
 
     [Fact]
@@ -33,7 +34,8 @@ public sealed class SettingsServiceTests : IDisposable
           "autoHideDelayMs": 1400,
           "hotkey": "Shift+F8",
           "startWithWindows": true,
-          "hideInFullscreen": false
+          "hideInFullscreen": false,
+          "monitorMode": "activeWindow"
         }
         """);
 
@@ -45,6 +47,7 @@ public sealed class SettingsServiceTests : IDisposable
         Assert.Equal(Key.F8, settings.HotkeyKey);
         Assert.True(settings.StartWithWindows);
         Assert.False(settings.HideInFullscreen);
+        Assert.Equal(MonitorPlacementMode.ActiveWindow, settings.MonitorMode);
     }
 
     [Fact]
@@ -57,7 +60,8 @@ public sealed class SettingsServiceTests : IDisposable
           "autoHideDelayMs": 20,
           "hotkey": "Banana+Space",
           "startWithWindows": true,
-          "hideInFullscreen": false
+          "hideInFullscreen": false,
+          "monitorMode": "spaceship"
         }
         """);
 
@@ -69,6 +73,7 @@ public sealed class SettingsServiceTests : IDisposable
         Assert.Equal(Key.Space, settings.HotkeyKey);
         Assert.True(settings.StartWithWindows);
         Assert.False(settings.HideInFullscreen);
+        Assert.Equal(MonitorPlacementMode.Primary, settings.MonitorMode);
     }
 
     [Fact]
@@ -82,6 +87,7 @@ public sealed class SettingsServiceTests : IDisposable
         Assert.Equal(SettingsService.DefaultApiPort, settings.ApiPort);
         Assert.False(settings.StartWithWindows);
         Assert.True(settings.HideInFullscreen);
+        Assert.Equal(MonitorPlacementMode.Primary, settings.MonitorMode);
     }
 
     [Fact]
@@ -121,6 +127,26 @@ public sealed class SettingsServiceTests : IDisposable
     public void TryParseHotkey_RejectsInvalidForms(string value)
     {
         Assert.False(SettingsService.TryParseHotkey(value, out _, out _));
+    }
+
+    [Theory]
+    [InlineData("primary", MonitorPlacementMode.Primary)]
+    [InlineData("PRIMARY", MonitorPlacementMode.Primary)]
+    [InlineData("activeWindow", MonitorPlacementMode.ActiveWindow)]
+    [InlineData("ACTIVEWINDOW", MonitorPlacementMode.ActiveWindow)]
+    public void TryParseMonitorMode_ParsesSupportedModes(string value, MonitorPlacementMode expected)
+    {
+        Assert.True(SettingsService.TryParseMonitorMode(value, out var actual));
+        Assert.Equal(expected, actual);
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("cursor")]
+    [InlineData("display2")]
+    public void TryParseMonitorMode_RejectsUnsupportedModes(string value)
+    {
+        Assert.False(SettingsService.TryParseMonitorMode(value, out _));
     }
 
     private string SettingsPath() => Path.Combine(_directory, "settings.json");

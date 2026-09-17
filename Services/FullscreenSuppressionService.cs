@@ -10,12 +10,14 @@ public sealed class FullscreenSuppressionService : IDisposable
     private const uint MonitorInfoPrimary = 0x00000001;
     private const int BoundsTolerance = 2;
 
+    private readonly MonitorPlacementMode _monitorMode;
     private readonly DispatcherTimer _timer;
     private bool _isSuppressed;
     private bool _disposed;
 
-    public FullscreenSuppressionService(TimeSpan? pollInterval = null)
+    public FullscreenSuppressionService(MonitorPlacementMode monitorMode, TimeSpan? pollInterval = null)
     {
+        _monitorMode = monitorMode;
         _timer = new DispatcherTimer(DispatcherPriority.Background)
         {
             Interval = pollInterval ?? TimeSpan.FromMilliseconds(500)
@@ -47,7 +49,7 @@ public sealed class FullscreenSuppressionService : IDisposable
             return;
         }
 
-        var next = IsForegroundFullscreenOnPrimaryMonitor();
+        var next = IsForegroundFullscreenForPlacementMode();
         if (next == _isSuppressed)
         {
             return;
@@ -57,7 +59,7 @@ public sealed class FullscreenSuppressionService : IDisposable
         Changed?.Invoke(this, new FullscreenSuppressionChangedEventArgs(next));
     }
 
-    private static bool IsForegroundFullscreenOnPrimaryMonitor()
+    private bool IsForegroundFullscreenForPlacementMode()
     {
         var window = GetForegroundWindow();
         if (window == IntPtr.Zero || !IsWindowVisible(window) || IsIconic(window) || IsDesktopShellWindow(window))
@@ -81,9 +83,12 @@ public sealed class FullscreenSuppressionService : IDisposable
         {
             Size = (uint)Marshal.SizeOf<MonitorInfo>()
         };
-        if (!GetMonitorInfo(monitor, ref monitorInfo) ||
-            (monitorInfo.Flags & MonitorInfoPrimary) == 0 ||
-            !GetWindowRect(window, out var windowRect))
+        if (!GetMonitorInfo(monitor, ref monitorInfo) || !GetWindowRect(window, out var windowRect))
+        {
+            return false;
+        }
+
+        if (_monitorMode == MonitorPlacementMode.Primary && (monitorInfo.Flags & MonitorInfoPrimary) == 0)
         {
             return false;
         }
