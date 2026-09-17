@@ -63,11 +63,11 @@ public partial class ExpandedView : UserControl
         if (_currentItem is null || _currentItem.IsBuiltIn)
         {
             UpdatedText.Text = string.Empty;
-            UpdatedText.Visibility = Visibility.Collapsed;
+            UpdatedPanel.Visibility = Visibility.Collapsed;
             return;
         }
 
-        UpdatedText.Visibility = Visibility.Visible;
+        UpdatedPanel.Visibility = Visibility.Visible;
         UpdatedText.Text = RelativeTimeFormatter.FormatUpdated(_currentItem.UpdatedAt, DateTimeOffset.UtcNow);
     }
 
