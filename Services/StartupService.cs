@@ -1,5 +1,4 @@
 using System.IO;
-using System.Reflection;
 using Microsoft.Win32;
 
 namespace NotchBar.Services;
@@ -22,7 +21,7 @@ public sealed class StartupService
 
             if (enabled)
             {
-                key.SetValue(ValueName, GetLaunchCommand(), RegistryValueKind.String);
+                key.SetValue(ValueName, ApplicationLaunchService.GetCurrentCommandLine(), RegistryValueKind.String);
             }
             else
             {
@@ -37,27 +36,5 @@ public sealed class StartupService
             error = exception.Message;
             return false;
         }
-    }
-
-    internal static string GetLaunchCommand()
-    {
-        var processPath = Environment.ProcessPath;
-        if (string.IsNullOrWhiteSpace(processPath))
-        {
-            throw new InvalidOperationException("The current executable path is unavailable.");
-        }
-
-        if (string.Equals(Path.GetFileNameWithoutExtension(processPath), "dotnet", StringComparison.OrdinalIgnoreCase))
-        {
-            var assemblyPath = Assembly.GetEntryAssembly()?.Location;
-            if (string.IsNullOrWhiteSpace(assemblyPath))
-            {
-                throw new InvalidOperationException("The NotchBar assembly path is unavailable.");
-            }
-
-            return $"\"{processPath}\" \"{assemblyPath}\"";
-        }
-
-        return $"\"{processPath}\"";
     }
 }
