@@ -10,6 +10,8 @@ public sealed class HotkeyService : IDisposable
     private const int WmHotKey = 0x0312;
     private const uint ModAlt = 0x0001;
     private const uint ModControl = 0x0002;
+    private const uint ModShift = 0x0004;
+    private const uint ModWin = 0x0008;
     private const int HotkeyId = 0x4E42;
 
     private HwndSource? _source;
@@ -26,16 +28,23 @@ public sealed class HotkeyService : IDisposable
         _source = HwndSource.FromHwnd(_handle);
         _source?.AddHook(WndProc);
 
-        var nativeModifiers = 0u;
-        if (modifiers.HasFlag(ModifierKeys.Alt)) nativeModifiers |= ModAlt;
-        if (modifiers.HasFlag(ModifierKeys.Control)) nativeModifiers |= ModControl;
-
+        var nativeModifiers = ToNativeModifiers(modifiers);
         var virtualKey = (uint)KeyInterop.VirtualKeyFromKey(key);
         _registered = RegisterHotKey(_handle, HotkeyId, nativeModifiers, virtualKey);
         if (!_registered)
         {
             RegistrationFailed?.Invoke(this, EventArgs.Empty);
         }
+    }
+
+    internal static uint ToNativeModifiers(ModifierKeys modifiers)
+    {
+        var nativeModifiers = 0u;
+        if (modifiers.HasFlag(ModifierKeys.Alt)) nativeModifiers |= ModAlt;
+        if (modifiers.HasFlag(ModifierKeys.Control)) nativeModifiers |= ModControl;
+        if (modifiers.HasFlag(ModifierKeys.Shift)) nativeModifiers |= ModShift;
+        if (modifiers.HasFlag(ModifierKeys.Windows)) nativeModifiers |= ModWin;
+        return nativeModifiers;
     }
 
     private IntPtr WndProc(IntPtr hwnd, int message, IntPtr wParam, IntPtr lParam, ref bool handled)

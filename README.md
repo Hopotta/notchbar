@@ -23,7 +23,7 @@ To create a Release executable:
 dotnet publish .\NotchBar.csproj -c Release -r win-x64 --self-contained false
 ```
 
-The published executable is placed under the generated `bin\Release` publish directory. The app does not currently register itself for automatic startup; launch the executable directly or create a Windows Startup shortcut if needed.
+The published executable is placed under the generated `bin\Release` publish directory.
 
 The API listens on `http://127.0.0.1:32145` by default. It binds only to the IPv4 loopback address, does not register a full-width AppBar, and does not modify the Windows work area.
 
@@ -38,13 +38,37 @@ NotchBar has four user-facing states:
 
 Mouse movement over the centered top trigger wakes `Compact`. Leaving the island starts an approximately 900ms auto-hide delay. Clicking the Compact content enters `Expanded`; pressing `Esc` collapses it. The Pin control only switches between pinned and auto-hide behavior, while clicking the content controls Compact/Expanded.
 
-## Default hotkey
+## Hotkey and settings
 
-`Ctrl + Alt + Space` toggles visibility. The shortcut is registered through Windows `RegisterHotKey` and unregistered during shutdown. If another application already owns the shortcut, NotchBar keeps mouse interaction available and writes the registration failure to debug output.
+`Ctrl + Alt + Space` is the default visibility hotkey. The shortcut is registered through Windows `RegisterHotKey` and unregistered during shutdown. If another application already owns the shortcut, NotchBar keeps mouse interaction available and writes the registration failure to debug output.
 
-## Tray and single-instance behavior
+Settings are loaded from:
 
-NotchBar exposes a system tray icon with `Show`, `Pin` / `Unpin`, and `Exit` actions. Double-clicking the tray icon shows the island.
+```text
+%LOCALAPPDATA%\NotchBar\settings.json
+```
+
+The file is created with defaults on first launch. Supported settings are:
+
+```json
+{
+  "apiPort": 32145,
+  "autoHideDelayMs": 900,
+  "hotkey": "Ctrl+Alt+Space",
+  "startWithWindows": false,
+  "hideInFullscreen": true
+}
+```
+
+`apiPort` is accepted from 1024 through 65535 and `autoHideDelayMs` from 100 through 10000. Invalid values and malformed hotkeys fall back to safe defaults. A malformed JSON file is ignored rather than preventing NotchBar from starting.
+
+The `hideInFullscreen` setting is persisted now for forward compatibility; fullscreen suppression itself is planned for the next daily-driver milestone.
+
+## Tray, startup, and single-instance behavior
+
+NotchBar exposes a system tray icon with `Show`, `Pin` / `Unpin`, `Start with Windows`, and `Exit` actions. Double-clicking the tray icon shows the island.
+
+`Start with Windows` creates a per-user entry under the Windows `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` key, so it does not require administrator rights. The preference is also stored in `settings.json`. If changing one side fails, NotchBar avoids silently leaving the setting half-applied.
 
 Only one NotchBar instance is allowed per Windows session. Starting NotchBar again signals the existing process to show its island and then exits, instead of creating a second window or competing for the localhost API port.
 
@@ -157,13 +181,13 @@ The script sends a demo status through `PUT /api/v1/items/demo` with a 10-second
 ## Current limitations
 
 - The current version targets the primary display only. Coordinates are calculated through WPF `SystemParameters` rather than hard-coded screen values.
-- The API port and hotkey are built-in defaults; there is no persisted configuration yet.
-- Automatic startup registration is not implemented yet.
-- Fullscreen applications do not currently suppress the island.
+- Settings are file-based; there is no graphical settings window yet.
+- Fullscreen applications do not currently suppress the island, although the preference is already persisted.
+- Changes to the API port or hotkey require an app restart.
 - The UI displays one best item selected by priority and update time rather than implementing a multi-card layout system.
 - The API is loopback-only and currently has no authentication. Do not change the listener to a remote network interface without adding an explicit security design.
 - There is no display-following behavior, Plugin SDK, Widget Marketplace, script runtime, or Event Bus.
 
 ## Possible future work
 
-The next daily-driver work is persisted settings, start-with-Windows support, fullscreen suppression, and later multi-monitor / DPI-aware positioning. Richer notification actions, status history, and additional visual themes can follow after those lifecycle basics are stable.
+The next daily-driver work is fullscreen suppression, followed by multi-monitor / DPI-aware positioning. A graphical settings surface, richer notification actions, status history, and additional visual themes can follow after those lifecycle basics are stable.
