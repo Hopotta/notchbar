@@ -1,7 +1,6 @@
 using System.Windows;
 using NotchBar.Core;
 using MediaBrush = System.Windows.Media.Brush;
-using MediaBrushes = System.Windows.Media.Brushes;
 using UserControl = System.Windows.Controls.UserControl;
 
 namespace NotchBar.UI;
@@ -32,9 +31,6 @@ public partial class CompactView : UserControl
         StatusHalo.Background = (MediaBrush)FindResource(haloKey);
 
         PinGlyph.Fill = (MediaBrush)FindResource(pinned ? "Accent" : "SecondaryText");
-        PinButton.Background = pinned
-            ? (MediaBrush)FindResource("AccentSoft")
-            : MediaBrushes.Transparent;
         PinButton.ToolTip = pinned ? "Unpin" : "Pin";
     }
 
