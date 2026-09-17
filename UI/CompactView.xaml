@@ -27,6 +27,7 @@
         </Border>
 
         <Border Grid.Column="1"
+                MaxWidth="88"
                 Margin="8,0,0,0"
                 Padding="7,3"
                 Background="{DynamicResource SurfaceRaised}"
