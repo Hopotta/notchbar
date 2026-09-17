@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using Timer = System.Threading.Timer;
 
 namespace NotchBar.Core;
 
