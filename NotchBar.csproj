@@ -10,6 +10,7 @@
     <AssemblyName>NotchBar</AssemblyName>
     <RootNamespace>NotchBar</RootNamespace>
     <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>Assets\NotchBar.ico</ApplicationIcon>
     <DefaultItemExcludes>$(DefaultItemExcludes);NotchBar.Tests\**</DefaultItemExcludes>
   </PropertyGroup>
 
