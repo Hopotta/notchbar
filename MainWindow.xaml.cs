@@ -15,6 +15,8 @@ public partial class MainWindow : Window, IDisposable
     private readonly StatusStore _statusStore;
     private readonly SettingsService _settings;
     private readonly NotchStateMachine _stateMachine = new();
+    private readonly TranslateTransform _compactContentTranslate = new();
+    private readonly TranslateTransform _expandedContentTranslate = new();
     private readonly MonitorPlacementService _monitorPlacementService;
     private readonly WindowController _windowController;
     private readonly AutoHideService _autoHideService;
@@ -30,6 +32,9 @@ public partial class MainWindow : Window, IDisposable
         _statusStore = statusStore;
         _settings = settings;
         InitializeComponent();
+
+        CompactContent.RenderTransform = _compactContentTranslate;
+        ExpandedContent.RenderTransform = _expandedContentTranslate;
 
         _monitorPlacementService = new MonitorPlacementService(_settings.MonitorMode);
         _windowController = new WindowController(this, _monitorPlacementService.Current);
@@ -332,17 +337,14 @@ public partial class MainWindow : Window, IDisposable
             _ => null
         };
 
-        TranslateTransform? translate = target switch
-        {
-            var element when ReferenceEquals(element, CompactContent) => CompactContentTranslate,
-            var element when ReferenceEquals(element, ExpandedContent) => ExpandedContentTranslate,
-            _ => null
-        };
-
-        if (target is null || translate is null)
+        if (target is null)
         {
             return;
         }
+
+        var translate = ReferenceEquals(target, CompactContent)
+            ? _compactContentTranslate
+            : _expandedContentTranslate;
 
         _pendingItemTransition = false;
         var easing = new CubicEase { EasingMode = EasingMode.EaseOut };
