@@ -74,7 +74,7 @@ public partial class MainWindow : Window, IDisposable
 
         if (!_stateMachine.IsPinned && !_isFullscreenSuppressed)
         {
-            _autoHideService.ScheduleHide();
+            ScheduleHideForDisplayItem();
         }
     }
 
@@ -159,7 +159,7 @@ public partial class MainWindow : Window, IDisposable
 
         if (!_isFullscreenSuppressed && !_stateMachine.IsPinned && _stateMachine.Current != NotchState.Hidden)
         {
-            _autoHideService.ScheduleHide();
+            ScheduleHideForDisplayItem();
         }
     }
 
@@ -178,7 +178,7 @@ public partial class MainWindow : Window, IDisposable
     {
         if (!_disposed && !_isFullscreenSuppressed)
         {
-            _autoHideService.OnMouseLeave();
+            _autoHideService.OnMouseLeave(GetAutoHideDelayForDisplayItem());
         }
     }
 
@@ -217,7 +217,7 @@ public partial class MainWindow : Window, IDisposable
 
         if (!_stateMachine.IsPinned && !_isFullscreenSuppressed)
         {
-            _autoHideService.ScheduleHide();
+            ScheduleHideForDisplayItem();
         }
     }
 
@@ -270,8 +270,28 @@ public partial class MainWindow : Window, IDisposable
         {
             _autoHideService.Cancel();
             _stateMachine.Set(NotchState.Compact);
-            _autoHideService.ScheduleHide();
+            ScheduleHideForDisplayItem();
         }
+    }
+
+    private void ScheduleHideForDisplayItem()
+    {
+        _autoHideService.ScheduleHide(GetAutoHideDelayForDisplayItem());
+    }
+
+    private TimeSpan GetAutoHideDelayForDisplayItem()
+    {
+        var item = _statusStore.GetDisplayItem();
+        if (item is { IsNotification: true, TtlSeconds: > 0 })
+        {
+            var remaining = item.UpdatedAt.AddSeconds(item.TtlSeconds) - DateTimeOffset.UtcNow;
+            if (remaining > TimeSpan.Zero)
+            {
+                return remaining;
+            }
+        }
+
+        return _settings.AutoHideDelay;
     }
 
     private void RefreshItem()
