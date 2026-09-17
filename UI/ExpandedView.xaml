@@ -12,7 +12,7 @@
         </Grid.RowDefinitions>
 
         <Grid x:Name="HeaderContent"
-             MouseLeftButtonUp="HeaderContent_OnMouseLeftButtonUp">
+              MouseLeftButtonUp="HeaderContent_OnMouseLeftButtonUp">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="Auto" />
                 <ColumnDefinition Width="*" />
@@ -24,6 +24,8 @@
                     Height="24"
                     CornerRadius="12"
                     Background="{DynamicResource AccentSoft}"
+                    BorderBrush="{DynamicResource InnerHairline}"
+                    BorderThickness="1"
                     VerticalAlignment="Top">
                 <Ellipse x:Name="StatusDot"
                          Width="7"
@@ -76,7 +78,7 @@
                 Margin="0,14,0,0"
                 Padding="13,11"
                 Background="{DynamicResource PanelBackground}"
-                BorderBrush="{DynamicResource InnerHairline}"
+                BorderBrush="{DynamicResource PanelBorder}"
                 BorderThickness="1"
                 CornerRadius="12">
             <StackPanel>
