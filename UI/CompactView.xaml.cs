@@ -29,8 +29,12 @@ public partial class CompactView : UserControl
             ? Visibility.Collapsed
             : Visibility.Visible;
 
-        var accentKey = item.IsNotification ? "NotificationAccent" : "Accent";
-        var haloKey = item.IsNotification ? "NotificationAccentSoft" : "AccentSoft";
+        var accentKey = item.IsNotification
+            ? "NotificationAccent"
+            : item.IsBuiltIn ? "BuiltInAccent" : "Accent";
+        var haloKey = item.IsNotification
+            ? "NotificationAccentSoft"
+            : item.IsBuiltIn ? "BuiltInAccentSoft" : "AccentSoft";
         StatusDot.Fill = (MediaBrush)FindResource(accentKey);
         StatusHalo.Background = (MediaBrush)FindResource(haloKey);
 
