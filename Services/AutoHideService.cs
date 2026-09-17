@@ -42,6 +42,17 @@ public sealed class AutoHideService : IDisposable
         ScheduleHide();
     }
 
+    public void ResetPointerState()
+    {
+        if (_disposed)
+        {
+            return;
+        }
+
+        _isPointerOver = false;
+        _timer.Stop();
+    }
+
     public void ScheduleHide()
     {
         if (_disposed || _isPointerOver || _stateMachine.Current is NotchState.Hidden or NotchState.Pinned)

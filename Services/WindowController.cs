@@ -12,6 +12,7 @@ public sealed class WindowController
     public const double HiddenTriggerHeight = 2;
 
     private readonly Window _window;
+    private bool _isSuppressed;
 
     public WindowController(Window window)
     {
@@ -22,10 +23,19 @@ public sealed class WindowController
         _window.Top = GetHiddenTop();
     }
 
+    public void SetSuppressed(bool suppressed)
+    {
+        _isSuppressed = suppressed;
+    }
+
     public void Apply(NotchState state)
     {
         var targetHeight = state is NotchState.Expanded or NotchState.Pinned ? ExpandedHeight : CompactHeight;
-        var targetTop = state == NotchState.Hidden ? -(targetHeight - HiddenTriggerHeight) : 0;
+        var targetTop = _isSuppressed
+            ? -targetHeight
+            : state == NotchState.Hidden
+                ? -(targetHeight - HiddenTriggerHeight)
+                : 0;
         var duration = new Duration(TimeSpan.FromMilliseconds(180));
 
         _window.Left = GetCenteredLeft();

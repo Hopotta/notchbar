@@ -14,6 +14,8 @@ public partial class MainWindow : Window, IDisposable
     private readonly WindowController _windowController;
     private readonly AutoHideService _autoHideService;
     private readonly HotkeyService _hotkeyService = new();
+    private readonly FullscreenSuppressionService? _fullscreenSuppressionService;
+    private bool _isFullscreenSuppressed;
     private bool _disposed;
 
     public MainWindow(StatusStore statusStore, SettingsService settings)
@@ -24,6 +26,11 @@ public partial class MainWindow : Window, IDisposable
 
         _windowController = new WindowController(this);
         _autoHideService = new AutoHideService(_stateMachine, _settings.AutoHideDelay);
+        if (_settings.HideInFullscreen)
+        {
+            _fullscreenSuppressionService = new FullscreenSuppressionService();
+            _fullscreenSuppressionService.Changed += FullscreenSuppressionService_OnChanged;
+        }
 
         _stateMachine.StateChanged += StateMachine_OnStateChanged;
         _statusStore.Changed += StatusStore_OnChanged;
@@ -94,6 +101,7 @@ public partial class MainWindow : Window, IDisposable
         _hotkeyService.Pressed += HotkeyService_OnPressed;
         _hotkeyService.RegistrationFailed += HotkeyService_OnRegistrationFailed;
         _hotkeyService.Attach(this, _settings.HotkeyModifiers, _settings.HotkeyKey);
+        _fullscreenSuppressionService?.Start();
     }
 
     private void HotkeyService_OnPressed(object? sender, EventArgs e)
@@ -117,9 +125,31 @@ public partial class MainWindow : Window, IDisposable
         Debug.WriteLine("NotchBar global hotkey could not be registered.");
     }
 
-    private void Window_OnMouseEnter(object sender, System.Windows.Input.MouseEventArgs e)
+    private void FullscreenSuppressionService_OnChanged(object? sender, FullscreenSuppressionChangedEventArgs e)
     {
         if (_disposed)
+        {
+            return;
+        }
+
+        _isFullscreenSuppressed = e.IsSuppressed;
+        _windowController.SetSuppressed(_isFullscreenSuppressed);
+        if (_isFullscreenSuppressed)
+        {
+            _autoHideService.ResetPointerState();
+        }
+
+        ApplyVisualState(_stateMachine.Current);
+
+        if (!_isFullscreenSuppressed && !_stateMachine.IsPinned && _stateMachine.Current != NotchState.Hidden)
+        {
+            _autoHideService.ScheduleHide();
+        }
+    }
+
+    private void Window_OnMouseEnter(object sender, System.Windows.Input.MouseEventArgs e)
+    {
+        if (_disposed || _isFullscreenSuppressed)
         {
             return;
         }
@@ -130,7 +160,7 @@ public partial class MainWindow : Window, IDisposable
 
     private void Window_OnMouseLeave(object sender, System.Windows.Input.MouseEventArgs e)
     {
-        if (!_disposed)
+        if (!_disposed && !_isFullscreenSuppressed)
         {
             _autoHideService.OnMouseLeave();
         }
@@ -138,7 +168,7 @@ public partial class MainWindow : Window, IDisposable
 
     private void ContentRoot_OnMouseLeftButtonUp(object sender, MouseButtonEventArgs e)
     {
-        if (!_disposed && _stateMachine.VisualState == NotchState.Compact)
+        if (!_disposed && !_isFullscreenSuppressed && _stateMachine.VisualState == NotchState.Compact)
         {
             _autoHideService.Cancel();
             _stateMachine.Expand();
@@ -191,11 +221,13 @@ public partial class MainWindow : Window, IDisposable
         }
 
         var visualState = _stateMachine.VisualState;
-        HiddenTrigger.Visibility = state == NotchState.Hidden ? Visibility.Visible : Visibility.Collapsed;
+        HiddenTrigger.Visibility = !_isFullscreenSuppressed && state == NotchState.Hidden
+            ? Visibility.Visible
+            : Visibility.Collapsed;
         CompactContent.Visibility = visualState == NotchState.Compact ? Visibility.Visible : Visibility.Collapsed;
         ExpandedContent.Visibility = visualState == NotchState.Expanded ? Visibility.Visible : Visibility.Collapsed;
 
-        if (state is NotchState.Hidden or NotchState.Pinned)
+        if (state is NotchState.Hidden or NotchState.Pinned || _isFullscreenSuppressed)
         {
             _autoHideService.Cancel();
         }
@@ -259,5 +291,10 @@ public partial class MainWindow : Window, IDisposable
         _hotkeyService.RegistrationFailed -= HotkeyService_OnRegistrationFailed;
         _hotkeyService.Dispose();
         _autoHideService.Dispose();
+        if (_fullscreenSuppressionService is not null)
+        {
+            _fullscreenSuppressionService.Changed -= FullscreenSuppressionService_OnChanged;
+            _fullscreenSuppressionService.Dispose();
+        }
     }
 }
