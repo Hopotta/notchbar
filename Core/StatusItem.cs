@@ -18,6 +18,9 @@ public sealed record StatusItem
     [JsonIgnore]
     public bool IsBuiltIn { get; init; }
 
+    [JsonIgnore]
+    public bool IsNotification { get; init; }
+
     public bool IsExpired(DateTimeOffset now)
     {
         return !IsBuiltIn && TtlSeconds > 0 && UpdatedAt.AddSeconds(TtlSeconds) <= now;

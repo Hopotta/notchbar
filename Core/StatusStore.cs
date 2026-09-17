@@ -50,7 +50,8 @@ public sealed class StatusStore : IDisposable
 
     public StatusItem? GetDisplayItem()
     {
-        return GetActiveItems().FirstOrDefault();
+        var active = GetActiveItems();
+        return active.FirstOrDefault(item => item.IsNotification) ?? active.FirstOrDefault();
     }
 
     public StatusItem Put(StatusItemRequest request, string id)
@@ -90,7 +91,8 @@ public sealed class StatusStore : IDisposable
             Priority = request.Priority ?? 60,
             TtlSeconds = request.TtlSeconds ?? 8,
             WakeOnUpdate = true,
-            UpdatedAt = _timeProvider.GetUtcNow()
+            UpdatedAt = _timeProvider.GetUtcNow(),
+            IsNotification = true
         };
 
         _items[item.Id] = item;
