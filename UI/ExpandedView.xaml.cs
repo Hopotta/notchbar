@@ -1,7 +1,8 @@
 using System.Windows;
-using System.Windows.Media;
 using System.Windows.Threading;
 using NotchBar.Core;
+using MediaBrush = System.Windows.Media.Brush;
+using MediaBrushes = System.Windows.Media.Brushes;
 using UserControl = System.Windows.Controls.UserControl;
 
 namespace NotchBar.UI;
@@ -44,13 +45,13 @@ public partial class ExpandedView : UserControl
 
         var accentKey = item.IsNotification ? "NotificationAccent" : "Accent";
         var haloKey = item.IsNotification ? "NotificationAccentSoft" : "AccentSoft";
-        StatusDot.Fill = (Brush)FindResource(accentKey);
-        StatusHalo.Background = (Brush)FindResource(haloKey);
+        StatusDot.Fill = (MediaBrush)FindResource(accentKey);
+        StatusHalo.Background = (MediaBrush)FindResource(haloKey);
 
-        PinGlyph.Fill = (Brush)FindResource(pinned ? "Accent" : "SecondaryText");
+        PinGlyph.Fill = (MediaBrush)FindResource(pinned ? "Accent" : "SecondaryText");
         PinButton.Background = pinned
-            ? (Brush)FindResource("AccentSoft")
-            : Brushes.Transparent;
+            ? (MediaBrush)FindResource("AccentSoft")
+            : MediaBrushes.Transparent;
         PinButton.ToolTip = pinned ? "Unpin" : "Pin";
 
         RefreshUpdatedText();
