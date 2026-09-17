@@ -7,6 +7,7 @@ public sealed class AutoHideService : IDisposable
 {
     private readonly DispatcherTimer _timer;
     private readonly NotchStateMachine _stateMachine;
+    private bool _isPointerOver;
     private bool _disposed;
 
     public AutoHideService(NotchStateMachine stateMachine, TimeSpan delay)
@@ -19,13 +20,31 @@ public sealed class AutoHideService : IDisposable
         _timer.Tick += OnTimerTick;
     }
 
-    public void OnMouseEnter() => _timer.Stop();
+    public void OnMouseEnter()
+    {
+        if (_disposed)
+        {
+            return;
+        }
 
-    public void OnMouseLeave() => ScheduleHide();
+        _isPointerOver = true;
+        _timer.Stop();
+    }
+
+    public void OnMouseLeave()
+    {
+        if (_disposed)
+        {
+            return;
+        }
+
+        _isPointerOver = false;
+        ScheduleHide();
+    }
 
     public void ScheduleHide()
     {
-        if (_disposed || _stateMachine.Current is NotchState.Hidden or NotchState.Pinned)
+        if (_disposed || _isPointerOver || _stateMachine.Current is NotchState.Hidden or NotchState.Pinned)
         {
             return;
         }
