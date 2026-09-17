@@ -1,49 +1,68 @@
 # NotchBar
 
-NotchBar 是一个轻量的 Windows 顶部信息岛 MVP：主显示器顶部中央有一个约 400×38px 的无边框置顶窗口，外部程序通过 localhost REST API 推送状态，NotchBar 负责选择、展示和按 TTL 过期清理。
+NotchBar is a lightweight Windows top information island. It presents a small, borderless, always-on-top status bar centered at the top of the primary display. External programs push status data through a localhost REST API; NotchBar selects, displays, and expires that data instead of collecting business data itself.
 
-## 运行
+## Requirements
 
-环境要求：Windows、.NET 10 SDK。
+- Windows
+- .NET 10 SDK
+- WPF desktop support included with the .NET SDK
+
+## Build and run
+
+From the project directory:
 
 ```powershell
+dotnet build .\NotchBar.sln
 dotnet run --project .\NotchBar.csproj
 ```
 
-启动后 API 默认监听：`http://127.0.0.1:32145`。程序只绑定 IPv4 loopback，不注册全宽 AppBar，也不修改 Windows 工作区。
+To create a Release executable:
 
-## 四种状态
+```powershell
+dotnet publish .\NotchBar.csproj -c Release -r win-x64 --self-contained false
+```
 
-- `Hidden`：窗口移到屏幕上方，只保留约 2px 的触发条。
-- `Compact`：显示一行摘要，例如 `CC · Working · 128k · 18m`。
-- `Expanded`：显示 detail、secondaryText、progress 和更新时间。
-- `Pinned`：保持当前 Compact 或 Expanded 视觉状态，不因鼠标离开自动隐藏。Pin 只改变固定策略，不负责展开。
+The published executable is placed under the generated `bin\Release` publish directory. The app does not currently register itself for automatic startup; launch the executable directly or create a Windows Startup shortcut if needed.
 
-鼠标移入顶部中央触发条会唤醒 Compact；离开约 900ms 后自动隐藏。点击 Compact 内容进入 Expanded，按 `Esc` 收起。Pin 控件只切换固定/自动隐藏，不会改变 Compact/Expanded 层级。
+The API listens on `http://127.0.0.1:32145` by default. It binds only to the IPv4 loopback address, does not register a full-width AppBar, and does not modify the Windows work area.
 
-## 默认快捷键
+## Interaction and states
 
-`Ctrl + Alt + Space`：切换显示 / 隐藏。快捷键由 Windows `RegisterHotKey` 注册，退出时注销；如果被其他程序占用，NotchBar 会保留鼠标交互并在调试输出中记录失败。
+NotchBar has four user-facing states:
+
+- `Hidden`: The window is moved above the screen and leaves only an approximately 2px trigger strip visible.
+- `Compact`: A single-line summary is shown, for example `CC · Working · 128k · 18m`.
+- `Expanded`: The detail text, secondary text, progress, and update time are shown.
+- `Pinned`: The current Compact or Expanded visual state stays visible and does not auto-hide. Pinning changes the hide policy; it does not expand the content.
+
+Mouse movement over the centered top trigger wakes `Compact`. Leaving the island starts an approximately 900ms auto-hide delay. Clicking the Compact content enters `Expanded`; pressing `Esc` collapses it. The Pin control only switches between pinned and auto-hide behavior, while clicking the content controls Compact/Expanded.
+
+## Default hotkey
+
+`Ctrl + Alt + Space` toggles visibility. The shortcut is registered through Windows `RegisterHotKey` and unregistered during shutdown. If another application already owns the shortcut, NotchBar keeps mouse interaction available and writes the registration failure to debug output.
 
 ## REST API
 
-请求和响应均为 JSON。API 只接受状态数据，不接受 HTML、CSS、XAML 或 shell command。
+Requests and responses use JSON. The API accepts status data only; it does not accept HTML, CSS, XAML, shell commands, or arbitrary UI descriptions.
 
-### 健康检查
+### Health check
 
 ```powershell
 Invoke-RestMethod http://127.0.0.1:32145/api/v1/health
 ```
 
-### 获取当前未过期状态
+### List active items
+
+This endpoint returns items that have not expired, ordered by priority and then update time.
 
 ```powershell
 Invoke-RestMethod http://127.0.0.1:32145/api/v1/items
 ```
 
-### 更新状态
+### Update an item
 
-`ttlSeconds` 对外部 item 必须为 1 到 86400 的正整数；每次 PUT 都会刷新更新时间。`progress` 为 0 到 1，`priority` 为 -100 到 1000。文本字段有长度限制。
+External items must use a positive `ttlSeconds` between 1 and 86400. Every PUT refreshes the item's update time. `progress` must be between 0 and 1, and `priority` must be between -100 and 1000. Text fields have length limits.
 
 ```powershell
 $body = @{
@@ -64,7 +83,7 @@ Invoke-RestMethod `
     -Body $body
 ```
 
-等价的 `curl` 示例：
+Equivalent `curl` example:
 
 ```powershell
 curl.exe -X PUT http://127.0.0.1:32145/api/v1/items/demo `
@@ -72,7 +91,7 @@ curl.exe -X PUT http://127.0.0.1:32145/api/v1/items/demo `
   -d '{"title":"CC","text":"Working","secondaryText":"128k · 18m","detail":"Refactoring retrieval pipeline","progress":0.63,"priority":80,"ttlSeconds":10,"wakeOnUpdate":true}'
 ```
 
-### 删除状态
+### Delete an item
 
 ```powershell
 Invoke-RestMethod `
@@ -80,11 +99,11 @@ Invoke-RestMethod `
     -Uri 'http://127.0.0.1:32145/api/v1/items/demo'
 ```
 
-内置 `clock` item 不允许删除。
+The built-in `clock` item cannot be deleted.
 
-### 发送一次性通知
+### Send a one-shot notification
 
-通知会生成一个短生命周期 item，默认 TTL 为 8 秒并唤醒 Compact：
+A notification creates a short-lived item. Its default TTL is 8 seconds and it wakes Compact.
 
 ```powershell
 $notify = @{
@@ -101,24 +120,42 @@ Invoke-RestMethod `
     -Body $notify
 ```
 
-## 示例推送脚本
+## StatusItem shape
 
-程序启动后运行：
+```json
+{
+  "id": "cc-statusboard",
+  "title": "CC",
+  "text": "Working",
+  "secondaryText": "128k · 18m",
+  "detail": "Refactoring retrieval pipeline",
+  "progress": 0.63,
+  "priority": 80,
+  "ttlSeconds": 10,
+  "wakeOnUpdate": false
+}
+```
+
+The store adds `updatedAt` when the item is accepted. TTL expiration is handled internally so a crashed producer cannot leave stale status visible forever.
+
+## Example push script
+
+After starting NotchBar, run:
 
 ```powershell
 .\scripts\push-demo.ps1
 ```
 
-脚本会通过 `PUT /api/v1/items/demo` 推送一个 10 秒 TTL 的示例状态。
+The script sends a demo status through `PUT /api/v1/items/demo` with a 10-second TTL.
 
-## 当前限制
+## Current limitations
 
-- 第一版只定位主显示器；屏幕尺寸通过 WPF `SystemParameters` 获取，没有把坐标写死。
-- API 默认端口和快捷键暂未提供设置界面，也没有持久化配置。
-- UI 只展示按 priority、更新时间排序后的一个最佳 item，不是多卡片布局系统。
-- API 仅绑定 `127.0.0.1`，当前没有认证；不要把监听地址改为远程网卡。
-- 没有系统托盘菜单、开机自启、显示器切换跟随、Plugin SDK、Widget Marketplace、脚本运行时或 Event Bus。
+- The first version targets the primary display only. Coordinates are calculated through WPF `SystemParameters` rather than hard-coded screen values.
+- The API port and hotkey are built-in defaults; there is no settings UI or persisted configuration yet.
+- The UI displays one best item selected by priority and update time rather than implementing a multi-card layout system.
+- The API is loopback-only and currently has no authentication. Do not change the listener to a remote network interface without adding an explicit security design.
+- There is no system tray menu, automatic startup registration, display-following behavior, Plugin SDK, Widget Marketplace, script runtime, or Event Bus.
 
-## 后续可考虑但尚未实现
+## Possible future work
 
-可在 MVP 验证后再考虑：设置文件和托盘菜单、可配置快捷键/端口、多显示器跟随、更多通知动作、状态历史和更丰富的视觉主题。
+After the MVP is validated, possible follow-up work includes a settings file and tray menu, configurable port and hotkey, multi-monitor following, richer notification actions, status history, and additional visual themes.
