@@ -3,37 +3,76 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              ShutdownMode="OnMainWindowClose">
     <Application.Resources>
-        <SolidColorBrush x:Key="IslandBackground" Color="#F20E1118" />
-        <SolidColorBrush x:Key="IslandBorder" Color="#42FFFFFF" />
-        <SolidColorBrush x:Key="PrimaryText" Color="#F4F7FB" />
-        <SolidColorBrush x:Key="SecondaryText" Color="#A9B3C2" />
-        <SolidColorBrush x:Key="MutedText" Color="#738096" />
-        <SolidColorBrush x:Key="Accent" Color="#73D7A1" />
-        <SolidColorBrush x:Key="AccentBlue" Color="#79AFFF" />
+        <LinearGradientBrush x:Key="IslandBackground" StartPoint="0,0" EndPoint="0,1">
+            <GradientStop Color="#FA181B23" Offset="0" />
+            <GradientStop Color="#FA0E1016" Offset="1" />
+        </LinearGradientBrush>
+        <SolidColorBrush x:Key="IslandBorder" Color="#30FFFFFF" />
+        <SolidColorBrush x:Key="InnerHairline" Color="#16FFFFFF" />
+        <SolidColorBrush x:Key="PanelBackground" Color="#12FFFFFF" />
+        <SolidColorBrush x:Key="SurfaceRaised" Color="#18FFFFFF" />
+        <SolidColorBrush x:Key="SurfaceHover" Color="#28FFFFFF" />
+        <SolidColorBrush x:Key="SurfacePressed" Color="#38FFFFFF" />
+        <SolidColorBrush x:Key="PrimaryText" Color="#F6F8FC" />
+        <SolidColorBrush x:Key="SecondaryText" Color="#B7C0CE" />
+        <SolidColorBrush x:Key="MutedText" Color="#7B8799" />
+        <SolidColorBrush x:Key="Accent" Color="#86E7B2" />
+        <SolidColorBrush x:Key="AccentSoft" Color="#2486E7B2" />
+        <SolidColorBrush x:Key="AccentBlue" Color="#82AEFF" />
+        <SolidColorBrush x:Key="NotificationAccent" Color="#F0C66E" />
+        <SolidColorBrush x:Key="NotificationAccentSoft" Color="#24F0C66E" />
+        <SolidColorBrush x:Key="ProgressTrack" Color="#22FFFFFF" />
+
         <Style x:Key="CompactButtonStyle" TargetType="Button">
-            <Setter Property="Background" Value="#1FFFFFFF" />
-            <Setter Property="Foreground" Value="{DynamicResource PrimaryText}" />
-            <Setter Property="BorderBrush" Value="#36FFFFFF" />
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="Foreground" Value="{DynamicResource SecondaryText}" />
+            <Setter Property="BorderBrush" Value="Transparent" />
             <Setter Property="BorderThickness" Value="1" />
             <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="FocusVisualStyle" Value="{x:Null}" />
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="Button">
                         <Border Background="{TemplateBinding Background}"
                                 BorderBrush="{TemplateBinding BorderBrush}"
                                 BorderThickness="{TemplateBinding BorderThickness}"
-                                CornerRadius="9">
+                                CornerRadius="10">
                             <ContentPresenter HorizontalAlignment="Center"
                                               VerticalAlignment="Center" />
                         </Border>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver" Value="True">
-                                <Setter Property="Background" Value="#38FFFFFF" />
+                                <Setter Property="Background" Value="{DynamicResource SurfaceHover}" />
+                                <Setter Property="BorderBrush" Value="{DynamicResource InnerHairline}" />
                             </Trigger>
                             <Trigger Property="IsPressed" Value="True">
-                                <Setter Property="Background" Value="#52FFFFFF" />
+                                <Setter Property="Background" Value="{DynamicResource SurfacePressed}" />
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter Property="Opacity" Value="0.45" />
                             </Trigger>
                         </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="IslandProgressBarStyle" TargetType="ProgressBar">
+            <Setter Property="Height" Value="5" />
+            <Setter Property="Foreground" Value="{DynamicResource AccentBlue}" />
+            <Setter Property="Background" Value="{DynamicResource ProgressTrack}" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ProgressBar">
+                        <Grid ClipToBounds="True">
+                            <Border Background="{TemplateBinding Background}"
+                                    CornerRadius="3" />
+                            <Grid x:Name="PART_Indicator"
+                                  HorizontalAlignment="Left">
+                                <Border Background="{TemplateBinding Foreground}"
+                                        CornerRadius="3" />
+                            </Grid>
+                        </Grid>
                     </ControlTemplate>
                 </Setter.Value>
             </Setter>
