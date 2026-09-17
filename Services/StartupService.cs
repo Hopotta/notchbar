@@ -31,7 +31,7 @@ public sealed class StartupService
             error = null;
             return true;
         }
-        catch (Exception exception) when (exception is UnauthorizedAccessException or System.Security.SecurityException or IOException)
+        catch (Exception exception) when (exception is UnauthorizedAccessException or System.Security.SecurityException or IOException or InvalidOperationException)
         {
             error = exception.Message;
             return false;
