@@ -1,6 +1,7 @@
 using System.Windows;
 using System.Windows.Threading;
 using NotchBar.Core;
+using MediaBrush = System.Windows.Media.Brush;
 using UserControl = System.Windows.Controls.UserControl;
 
 namespace NotchBar.UI;
@@ -30,11 +31,23 @@ public partial class ExpandedView : UserControl
         _currentItem = item;
         TitleText.Text = item.Title;
         SummaryText.Text = item.Text;
-        DetailText.Text = string.IsNullOrWhiteSpace(item.Detail) ? "No additional detail" : item.Detail;
-        SecondaryText.Text = item.SecondaryText ?? string.Empty;
+        DetailText.Text = string.IsNullOrWhiteSpace(item.Detail) ? "No additional context" : item.Detail;
+
+        var secondary = item.SecondaryText?.Trim();
+        SecondaryText.Text = secondary ?? string.Empty;
+        SecondaryText.Visibility = string.IsNullOrWhiteSpace(secondary)
+            ? Visibility.Collapsed
+            : Visibility.Visible;
+
         ProgressBar.Visibility = item.Progress is null ? Visibility.Collapsed : Visibility.Visible;
         ProgressBar.Value = item.Progress ?? 0;
-        PinGlyph.Text = pinned ? "◆" : "◇";
+
+        var accentKey = item.IsNotification ? "NotificationAccent" : "Accent";
+        var haloKey = item.IsNotification ? "NotificationAccentSoft" : "AccentSoft";
+        StatusDot.Fill = (MediaBrush)FindResource(accentKey);
+        StatusHalo.Background = (MediaBrush)FindResource(haloKey);
+
+        PinGlyph.Fill = (MediaBrush)FindResource(pinned ? "Accent" : "SecondaryText");
         PinButton.ToolTip = pinned ? "Unpin" : "Pin";
 
         RefreshUpdatedText();
@@ -46,11 +59,11 @@ public partial class ExpandedView : UserControl
         if (_currentItem is null || _currentItem.IsBuiltIn)
         {
             UpdatedText.Text = string.Empty;
-            UpdatedText.Visibility = Visibility.Collapsed;
+            UpdatedPanel.Visibility = Visibility.Collapsed;
             return;
         }
 
-        UpdatedText.Visibility = Visibility.Visible;
+        UpdatedPanel.Visibility = Visibility.Visible;
         UpdatedText.Text = RelativeTimeFormatter.FormatUpdated(_currentItem.UpdatedAt, DateTimeOffset.UtcNow);
     }
 

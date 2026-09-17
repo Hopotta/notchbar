@@ -1,5 +1,6 @@
 using System.Windows;
 using NotchBar.Core;
+using MediaBrush = System.Windows.Media.Brush;
 using UserControl = System.Windows.Controls.UserControl;
 
 namespace NotchBar.UI;
@@ -15,9 +16,21 @@ public partial class CompactView : UserControl
 
     public void ShowItem(StatusItem item, bool pinned)
     {
-        var secondary = string.IsNullOrWhiteSpace(item.SecondaryText) ? string.Empty : $" · {item.SecondaryText}";
-        CompactText.Text = $"{item.Title}  {item.Text}{secondary}";
-        PinGlyph.Text = pinned ? "◆" : "◇";
+        TitleText.Text = item.Title;
+        SummaryText.Text = item.Text;
+
+        var secondary = item.SecondaryText?.Trim();
+        SecondaryText.Text = secondary ?? string.Empty;
+        SecondaryText.Visibility = string.IsNullOrWhiteSpace(secondary)
+            ? Visibility.Collapsed
+            : Visibility.Visible;
+
+        var accentKey = item.IsNotification ? "NotificationAccent" : "Accent";
+        var haloKey = item.IsNotification ? "NotificationAccentSoft" : "AccentSoft";
+        StatusDot.Fill = (MediaBrush)FindResource(accentKey);
+        StatusHalo.Background = (MediaBrush)FindResource(haloKey);
+
+        PinGlyph.Fill = (MediaBrush)FindResource(pinned ? "Accent" : "SecondaryText");
         PinButton.ToolTip = pinned ? "Unpin" : "Pin";
     }
 
