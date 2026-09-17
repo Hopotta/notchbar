@@ -5,7 +5,7 @@ using Forms = System.Windows.Forms;
 
 namespace NotchBar.Services;
 
-public enum MonitorMode
+public enum MonitorPlacementMode
 {
     Primary,
     ActiveWindow
@@ -15,12 +15,12 @@ public sealed record MonitorTarget(string DeviceName, Rectangle Bounds, bool IsP
 
 public sealed class MonitorPlacementService : IDisposable
 {
-    private readonly MonitorMode _mode;
+    private readonly MonitorPlacementMode _mode;
     private readonly DispatcherTimer _timer;
     private MonitorTarget _current;
     private bool _disposed;
 
-    public MonitorPlacementService(MonitorMode mode, TimeSpan? pollInterval = null)
+    public MonitorPlacementService(MonitorPlacementMode mode, TimeSpan? pollInterval = null)
     {
         _mode = mode;
         _current = ResolveTarget(mode);
@@ -65,10 +65,10 @@ public sealed class MonitorPlacementService : IDisposable
         Changed?.Invoke(this, new MonitorTargetChangedEventArgs(next));
     }
 
-    private static MonitorTarget ResolveTarget(MonitorMode mode)
+    private static MonitorTarget ResolveTarget(MonitorPlacementMode mode)
     {
         Forms.Screen? screen = null;
-        if (mode == MonitorMode.ActiveWindow)
+        if (mode == MonitorPlacementMode.ActiveWindow)
         {
             var foreground = GetForegroundWindow();
             if (foreground != IntPtr.Zero)
