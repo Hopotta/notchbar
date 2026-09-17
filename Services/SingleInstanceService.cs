@@ -14,9 +14,19 @@ public sealed class SingleInstanceService : IDisposable
 
     public SingleInstanceService()
     {
-        _mutex = new Mutex(initiallyOwned: true, MutexName, out var createdNew);
-        IsPrimary = createdNew;
-        _ownsMutex = createdNew;
+        _mutex = new Mutex(initiallyOwned: false, MutexName);
+        try
+        {
+            _ownsMutex = _mutex.WaitOne(0);
+        }
+        catch (AbandonedMutexException)
+        {
+            // The previous owner exited without releasing the mutex. Ownership is
+            // transferred to this process, so it can safely become the primary.
+            _ownsMutex = true;
+        }
+
+        IsPrimary = _ownsMutex;
         _activationEvent = new EventWaitHandle(false, EventResetMode.AutoReset, ActivationEventName);
 
         if (!IsPrimary)
