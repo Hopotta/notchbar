@@ -330,6 +330,12 @@ public partial class MainWindow : Window, IDisposable
             return;
         }
 
+        if (!SystemParameters.ClientAreaAnimation)
+        {
+            _pendingItemTransition = false;
+            return;
+        }
+
         FrameworkElement? target = _stateMachine.VisualState switch
         {
             NotchState.Compact when CompactContent.Visibility == Visibility.Visible => CompactContent,
