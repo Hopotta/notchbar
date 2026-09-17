@@ -40,7 +40,7 @@ public partial class CompactView : UserControl
 
     public double GetPreferredWidth()
     {
-        LayoutRoot.Measure(new Size(double.PositiveInfinity, 44));
+        LayoutRoot.Measure(new System.Windows.Size(double.PositiveInfinity, 44));
         return Quantize(Math.Clamp(LayoutRoot.DesiredSize.Width + 4, MinPreferredWidth, MaxPreferredWidth));
     }
 
