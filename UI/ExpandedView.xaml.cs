@@ -63,13 +63,13 @@ public partial class ExpandedView : UserControl
 
     public double GetPreferredWidth()
     {
-        LayoutRoot.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+        LayoutRoot.Measure(new System.Windows.Size(double.PositiveInfinity, double.PositiveInfinity));
         return Quantize(Math.Clamp(LayoutRoot.DesiredSize.Width + 4, MinPreferredWidth, MaxPreferredWidth));
     }
 
     public double GetPreferredHeight(double availableWidth)
     {
-        LayoutRoot.Measure(new Size(Math.Max(1, availableWidth), double.PositiveInfinity));
+        LayoutRoot.Measure(new System.Windows.Size(Math.Max(1, availableWidth), double.PositiveInfinity));
         return Math.Ceiling(Math.Clamp(LayoutRoot.DesiredSize.Height + 4, MinPreferredHeight, MaxPreferredHeight));
     }
 
