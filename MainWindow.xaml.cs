@@ -1,8 +1,8 @@
 using System.Diagnostics;
 using System.Windows;
 using System.Windows.Input;
-using System.Windows.Media.Animation;
 using System.Windows.Media;
+using System.Windows.Media.Animation;
 using NotchBar.Core;
 using NotchBar.Services;
 
@@ -279,6 +279,8 @@ public partial class MainWindow : Window, IDisposable
             _stateMachine.Set(NotchState.Compact);
             ScheduleHideForActiveContent();
         }
+
+        TryRunPendingItemTransition();
     }
 
     private void ScheduleHideForActiveContent()
@@ -314,7 +316,6 @@ public partial class MainWindow : Window, IDisposable
 
         CompactContent.ShowItem(item, _stateMachine.IsPinned);
         ExpandedContent.ShowItem(item, _stateMachine.IsPinned);
-        TryRunPendingItemTransition();
     }
 
     private void TryRunPendingItemTransition()
