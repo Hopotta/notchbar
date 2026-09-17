@@ -93,7 +93,8 @@
             </StackPanel>
         </Border>
 
-        <StackPanel Grid.Row="3"
+        <StackPanel x:Name="UpdatedPanel"
+                    Grid.Row="3"
                     Margin="2,11,0,0"
                     Orientation="Horizontal">
             <Ellipse Width="4"
