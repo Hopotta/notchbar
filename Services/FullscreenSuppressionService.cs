@@ -1,4 +1,5 @@
 using System.Runtime.InteropServices;
+using System.Text;
 using System.Windows.Threading;
 
 namespace NotchBar.Services;
@@ -59,7 +60,7 @@ public sealed class FullscreenSuppressionService : IDisposable
     private static bool IsForegroundFullscreenOnPrimaryMonitor()
     {
         var window = GetForegroundWindow();
-        if (window == IntPtr.Zero || !IsWindowVisible(window) || IsIconic(window))
+        if (window == IntPtr.Zero || !IsWindowVisible(window) || IsIconic(window) || IsDesktopShellWindow(window))
         {
             return false;
         }
@@ -88,6 +89,22 @@ public sealed class FullscreenSuppressionService : IDisposable
         }
 
         return CoversBounds(windowRect, monitorInfo.Monitor, BoundsTolerance);
+    }
+
+    private static bool IsDesktopShellWindow(IntPtr window)
+    {
+        if (window == GetShellWindow())
+        {
+            return true;
+        }
+
+        var className = new StringBuilder(64);
+        if (GetClassName(window, className, className.Capacity) == 0)
+        {
+            return false;
+        }
+
+        return className.ToString() is "Progman" or "WorkerW" or "Shell_TrayWnd";
     }
 
     private static bool CoversBounds(NativeRect window, NativeRect monitor, int tolerance)
@@ -130,6 +147,12 @@ public sealed class FullscreenSuppressionService : IDisposable
 
     [DllImport("user32.dll")]
     private static extern IntPtr GetForegroundWindow();
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr GetShellWindow();
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    private static extern int GetClassName(IntPtr hWnd, StringBuilder className, int maxCount);
 
     [DllImport("user32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]
