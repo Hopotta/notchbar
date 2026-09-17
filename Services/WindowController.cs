@@ -89,14 +89,17 @@ public sealed class WindowController : IDisposable
         var targetWidth = GetTargetWidth(state);
         var targetHeight = GetTargetHeight(state);
 
-        if (_handle == IntPtr.Zero || state == NotchState.Hidden)
+        if (_handle == IntPtr.Zero)
         {
             SetDimensionsImmediate(targetWidth, state == NotchState.Hidden ? CompactHeight : targetHeight);
             ApplyFallbackPosition(state);
-            if (_handle != IntPtr.Zero)
-            {
-                PositionNative(state);
-            }
+            return;
+        }
+
+        if (state == NotchState.Hidden)
+        {
+            SetDimensionsImmediate(targetWidth, CompactHeight);
+            PositionNative(state);
             return;
         }
 
