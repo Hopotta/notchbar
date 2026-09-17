@@ -112,7 +112,10 @@ public sealed class SettingsService
             }
         }
 
-        if (!Enum.TryParse(parts[^1], ignoreCase: true, out key) || key == Key.None)
+        if (!Enum.TryParse(parts[^1], ignoreCase: true, out key) ||
+            !Enum.IsDefined(typeof(Key), key) ||
+            key == Key.None ||
+            KeyInterop.VirtualKeyFromKey(key) == 0)
         {
             modifiers = ModifierKeys.None;
             key = Key.None;
