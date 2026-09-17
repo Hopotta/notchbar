@@ -29,12 +29,21 @@ public sealed class TrayService : IDisposable
         };
         _startupItem.Click += (_, _) => StartWithWindowsToggleRequested?.Invoke(this, EventArgs.Empty);
 
+        var settingsItem = new Forms.ToolStripMenuItem("Open Settings");
+        settingsItem.Click += (_, _) => OpenSettingsRequested?.Invoke(this, EventArgs.Empty);
+
+        var restartItem = new Forms.ToolStripMenuItem("Restart NotchBar");
+        restartItem.Click += (_, _) => RestartRequested?.Invoke(this, EventArgs.Empty);
+
         var exitItem = new Forms.ToolStripMenuItem("Exit");
         exitItem.Click += (_, _) => ExitRequested?.Invoke(this, EventArgs.Empty);
 
         _menu.Items.Add(showItem);
         _menu.Items.Add(_pinItem);
         _menu.Items.Add(_startupItem);
+        _menu.Items.Add(new Forms.ToolStripSeparator());
+        _menu.Items.Add(settingsItem);
+        _menu.Items.Add(restartItem);
         _menu.Items.Add(new Forms.ToolStripSeparator());
         _menu.Items.Add(exitItem);
 
@@ -51,6 +60,8 @@ public sealed class TrayService : IDisposable
     public event EventHandler? ShowRequested;
     public event EventHandler? PinToggleRequested;
     public event EventHandler? StartWithWindowsToggleRequested;
+    public event EventHandler? OpenSettingsRequested;
+    public event EventHandler? RestartRequested;
     public event EventHandler? ExitRequested;
 
     public void SetPinned(bool pinned)
