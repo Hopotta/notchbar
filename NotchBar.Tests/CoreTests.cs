@@ -117,6 +117,36 @@ public sealed class StatusStoreTests
         Assert.Throws<InvalidOperationException>(() => store.Put(Request("Fake clock"), "clock"));
     }
 
+    [Fact]
+    public void RemainingNotificationLifetime_TracksLatestActiveExpiry()
+    {
+        var time = new ManualTimeProvider(DateTimeOffset.Parse("2026-09-17T00:00:00Z"));
+        using var store = new StatusStore(time);
+
+        store.AddNotification(new NotificationRequest
+        {
+            Text = "First",
+            Priority = 100,
+            TtlSeconds = 4
+        });
+
+        time.Advance(TimeSpan.FromSeconds(1));
+        store.AddNotification(new NotificationRequest
+        {
+            Text = "Second",
+            Priority = 10,
+            TtlSeconds = 10
+        });
+
+        Assert.Equal(TimeSpan.FromSeconds(10), store.GetRemainingNotificationLifetime());
+
+        time.Advance(TimeSpan.FromSeconds(4));
+        Assert.Equal(TimeSpan.FromSeconds(6), store.GetRemainingNotificationLifetime());
+
+        time.Advance(TimeSpan.FromSeconds(7));
+        Assert.Null(store.GetRemainingNotificationLifetime());
+    }
+
     private static StatusItemRequest Request(string text, int priority = 50, int ttlSeconds = 10) => new()
     {
         Title = "Test",

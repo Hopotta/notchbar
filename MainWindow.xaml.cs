@@ -74,7 +74,7 @@ public partial class MainWindow : Window, IDisposable
 
         if (!_stateMachine.IsPinned && !_isFullscreenSuppressed)
         {
-            _autoHideService.ScheduleHide();
+            ScheduleHideForActiveContent();
         }
     }
 
@@ -159,7 +159,7 @@ public partial class MainWindow : Window, IDisposable
 
         if (!_isFullscreenSuppressed && !_stateMachine.IsPinned && _stateMachine.Current != NotchState.Hidden)
         {
-            _autoHideService.ScheduleHide();
+            ScheduleHideForActiveContent();
         }
     }
 
@@ -178,7 +178,7 @@ public partial class MainWindow : Window, IDisposable
     {
         if (!_disposed && !_isFullscreenSuppressed)
         {
-            _autoHideService.OnMouseLeave();
+            _autoHideService.OnMouseLeave(GetAutoHideDelayForActiveContent());
         }
     }
 
@@ -217,7 +217,7 @@ public partial class MainWindow : Window, IDisposable
 
         if (!_stateMachine.IsPinned && !_isFullscreenSuppressed)
         {
-            _autoHideService.ScheduleHide();
+            ScheduleHideForActiveContent();
         }
     }
 
@@ -270,8 +270,21 @@ public partial class MainWindow : Window, IDisposable
         {
             _autoHideService.Cancel();
             _stateMachine.Set(NotchState.Compact);
-            _autoHideService.ScheduleHide();
+            ScheduleHideForActiveContent();
         }
+    }
+
+    private void ScheduleHideForActiveContent()
+    {
+        _autoHideService.ScheduleHide(GetAutoHideDelayForActiveContent());
+    }
+
+    private TimeSpan GetAutoHideDelayForActiveContent()
+    {
+        var notificationLifetime = _statusStore.GetRemainingNotificationLifetime();
+        return notificationLifetime is { } remaining && remaining > TimeSpan.Zero
+            ? remaining
+            : _settings.AutoHideDelay;
     }
 
     private void RefreshItem()
