@@ -1,4 +1,5 @@
 using NotchBar.Core;
+using Xunit;
 
 namespace NotchBar.Tests;
 
