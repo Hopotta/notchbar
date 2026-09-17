@@ -25,6 +25,7 @@ public partial class ExpandedView : UserControl
     }
 
     public event EventHandler? PinClicked;
+    public event EventHandler? CollapseRequested;
 
     public void ShowItem(StatusItem item, bool pinned)
     {
@@ -99,5 +100,11 @@ public partial class ExpandedView : UserControl
     {
         e.Handled = true;
         PinClicked?.Invoke(this, EventArgs.Empty);
+    }
+
+    private void HeaderContent_OnMouseLeftButtonUp(object sender, System.Windows.Input.MouseButtonEventArgs e)
+    {
+        e.Handled = true;
+        CollapseRequested?.Invoke(this, EventArgs.Empty);
     }
 }

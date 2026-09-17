@@ -11,7 +11,8 @@
             <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
 
-        <Grid>
+        <Grid x:Name="HeaderContent"
+             MouseLeftButtonUp="HeaderContent_OnMouseLeftButtonUp">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="Auto" />
                 <ColumnDefinition Width="*" />

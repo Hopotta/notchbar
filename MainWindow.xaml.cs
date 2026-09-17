@@ -50,6 +50,7 @@ public partial class MainWindow : Window, IDisposable
         _statusStore.Changed += StatusStore_OnChanged;
         CompactContent.PinClicked += Pin_OnClicked;
         ExpandedContent.PinClicked += Pin_OnClicked;
+        ExpandedContent.CollapseRequested += ExpandedContent_OnCollapseRequested;
 
         RefreshItem();
         ApplyVisualState(_stateMachine.Current);
@@ -209,6 +210,15 @@ public partial class MainWindow : Window, IDisposable
         {
             _stateMachine.Collapse();
             e.Handled = true;
+        }
+    }
+
+    private void ExpandedContent_OnCollapseRequested(object? sender, EventArgs e)
+    {
+        if (!_disposed && !_isFullscreenSuppressed && _stateMachine.VisualState == NotchState.Expanded)
+        {
+            _autoHideService.Cancel();
+            _stateMachine.Collapse();
         }
     }
 
@@ -383,6 +393,7 @@ public partial class MainWindow : Window, IDisposable
         _monitorPlacementService.Changed -= MonitorPlacementService_OnChanged;
         CompactContent.PinClicked -= Pin_OnClicked;
         ExpandedContent.PinClicked -= Pin_OnClicked;
+        ExpandedContent.CollapseRequested -= ExpandedContent_OnCollapseRequested;
         _hotkeyService.Pressed -= HotkeyService_OnPressed;
         _hotkeyService.RegistrationFailed -= HotkeyService_OnRegistrationFailed;
         _hotkeyService.Dispose();
