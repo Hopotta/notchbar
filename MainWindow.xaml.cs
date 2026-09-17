@@ -1,6 +1,8 @@
 using System.Diagnostics;
 using System.Windows;
 using System.Windows.Input;
+using System.Windows.Media;
+using System.Windows.Media.Animation;
 using NotchBar.Core;
 using NotchBar.Services;
 
@@ -8,14 +10,20 @@ namespace NotchBar;
 
 public partial class MainWindow : Window, IDisposable
 {
+    private static readonly Duration ItemTransitionDuration = new(TimeSpan.FromMilliseconds(140));
+
     private readonly StatusStore _statusStore;
     private readonly SettingsService _settings;
     private readonly NotchStateMachine _stateMachine = new();
+    private readonly TranslateTransform _compactContentTranslate = new();
+    private readonly TranslateTransform _expandedContentTranslate = new();
     private readonly MonitorPlacementService _monitorPlacementService;
     private readonly WindowController _windowController;
     private readonly AutoHideService _autoHideService;
     private readonly HotkeyService _hotkeyService = new();
     private readonly FullscreenSuppressionService? _fullscreenSuppressionService;
+    private string? _displayedItemId;
+    private bool _pendingItemTransition;
     private bool _isFullscreenSuppressed;
     private bool _disposed;
 
@@ -24,6 +32,9 @@ public partial class MainWindow : Window, IDisposable
         _statusStore = statusStore;
         _settings = settings;
         InitializeComponent();
+
+        CompactContent.RenderTransform = _compactContentTranslate;
+        ExpandedContent.RenderTransform = _expandedContentTranslate;
 
         _monitorPlacementService = new MonitorPlacementService(_settings.MonitorMode);
         _windowController = new WindowController(this, _monitorPlacementService.Current);
@@ -249,6 +260,7 @@ public partial class MainWindow : Window, IDisposable
         }
 
         RefreshItem();
+        TryRunPendingItemTransition();
         _windowController.Apply(visualState);
     }
 
@@ -272,6 +284,8 @@ public partial class MainWindow : Window, IDisposable
             _stateMachine.Set(NotchState.Compact);
             ScheduleHideForActiveContent();
         }
+
+        TryRunPendingItemTransition();
     }
 
     private void ScheduleHideForActiveContent()
@@ -295,8 +309,60 @@ public partial class MainWindow : Window, IDisposable
             return;
         }
 
+        if (_displayedItemId is null)
+        {
+            _displayedItemId = item.Id;
+        }
+        else if (!string.Equals(_displayedItemId, item.Id, StringComparison.OrdinalIgnoreCase))
+        {
+            _displayedItemId = item.Id;
+            _pendingItemTransition = true;
+        }
+
         CompactContent.ShowItem(item, _stateMachine.IsPinned);
         ExpandedContent.ShowItem(item, _stateMachine.IsPinned);
+    }
+
+    private void TryRunPendingItemTransition()
+    {
+        if (!_pendingItemTransition || _isFullscreenSuppressed || _stateMachine.Current == NotchState.Hidden)
+        {
+            return;
+        }
+
+        if (!SystemParameters.ClientAreaAnimation)
+        {
+            _pendingItemTransition = false;
+            return;
+        }
+
+        FrameworkElement? target = _stateMachine.VisualState switch
+        {
+            NotchState.Compact when CompactContent.Visibility == Visibility.Visible => CompactContent,
+            NotchState.Expanded when ExpandedContent.Visibility == Visibility.Visible => ExpandedContent,
+            _ => null
+        };
+
+        if (target is null)
+        {
+            return;
+        }
+
+        var translate = ReferenceEquals(target, CompactContent)
+            ? _compactContentTranslate
+            : _expandedContentTranslate;
+
+        _pendingItemTransition = false;
+        var easing = new CubicEase { EasingMode = EasingMode.EaseOut };
+
+        target.BeginAnimation(OpacityProperty, new DoubleAnimation(0.45, 1, ItemTransitionDuration)
+        {
+            EasingFunction = easing
+        });
+        translate.BeginAnimation(TranslateTransform.YProperty, new DoubleAnimation(4, 0, ItemTransitionDuration)
+        {
+            EasingFunction = easing
+        });
     }
 
     private void Window_OnClosed(object? sender, EventArgs e)
