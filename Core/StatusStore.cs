@@ -54,6 +54,28 @@ public sealed class StatusStore : IDisposable
         return active.FirstOrDefault(item => item.IsNotification) ?? active.FirstOrDefault();
     }
 
+    public TimeSpan? GetRemainingNotificationLifetime()
+    {
+        var now = _timeProvider.GetUtcNow();
+        DateTimeOffset? latestExpiry = null;
+
+        foreach (var item in _items.Values)
+        {
+            if (!item.IsNotification || item.IsExpired(now) || item.TtlSeconds <= 0)
+            {
+                continue;
+            }
+
+            var expiry = item.UpdatedAt.AddSeconds(item.TtlSeconds);
+            if (latestExpiry is null || expiry > latestExpiry.Value)
+            {
+                latestExpiry = expiry;
+            }
+        }
+
+        return latestExpiry is null ? null : latestExpiry.Value - now;
+    }
+
     public StatusItem Put(StatusItemRequest request, string id)
     {
         if (IsReservedId(id))
