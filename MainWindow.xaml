@@ -24,8 +24,14 @@
             BorderBrush="{DynamicResource IslandBorder}"
             BorderThickness="1,0,1,1"
             CornerRadius="0,0,20,20"
-            ClipToBounds="True">
+            ClipToBounds="True"
+            Effect="{StaticResource IslandDepthShadow}">
         <Grid x:Name="ContentRoot" MouseLeftButtonUp="ContentRoot_OnMouseLeftButtonUp">
+            <Border Height="22"
+                    VerticalAlignment="Top"
+                    Background="{DynamicResource GlassSheen}"
+                    IsHitTestVisible="False" />
+
             <Border BorderBrush="{DynamicResource InnerHairline}"
                     BorderThickness="0,0,0,1"
                     CornerRadius="0,0,19,19"
