@@ -9,6 +9,7 @@ public sealed class SettingsService
     public const int DefaultApiPort = 32145;
     public const int DefaultAutoHideDelayMs = 900;
     public const string DefaultHotkey = "Ctrl+Alt+Space";
+    public const string DefaultMonitorMode = "primary";
 
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -24,6 +25,7 @@ public sealed class SettingsService
         _settingsPath = settingsPath ?? GetDefaultSettingsPath();
         _settings = LoadAndNormalize(_settingsPath);
         (HotkeyModifiers, HotkeyKey) = ParseHotkeyOrDefault(_settings.Hotkey);
+        MonitorMode = ParseMonitorModeOrDefault(_settings.MonitorMode);
     }
 
     public int ApiPort => _settings.ApiPort;
@@ -32,6 +34,7 @@ public sealed class SettingsService
     public TimeSpan AutoHideDelay => TimeSpan.FromMilliseconds(_settings.AutoHideDelayMs);
     public bool StartWithWindows => _settings.StartWithWindows;
     public bool HideInFullscreen => _settings.HideInFullscreen;
+    public MonitorPlacementMode MonitorMode { get; }
     public string SettingsPath => _settingsPath;
 
     public bool SetStartWithWindows(bool enabled, out string? error)
@@ -125,6 +128,24 @@ public sealed class SettingsService
         return true;
     }
 
+    public static bool TryParseMonitorMode(string? value, out MonitorPlacementMode mode)
+    {
+        if (string.Equals(value, "primary", StringComparison.OrdinalIgnoreCase))
+        {
+            mode = MonitorPlacementMode.Primary;
+            return true;
+        }
+
+        if (string.Equals(value, "activeWindow", StringComparison.OrdinalIgnoreCase))
+        {
+            mode = MonitorPlacementMode.ActiveWindow;
+            return true;
+        }
+
+        mode = MonitorPlacementMode.Primary;
+        return false;
+    }
+
     private static (ModifierKeys Modifiers, Key Key) ParseHotkeyOrDefault(string value)
     {
         if (TryParseHotkey(value, out var modifiers, out var key))
@@ -134,6 +155,11 @@ public sealed class SettingsService
 
         _ = TryParseHotkey(DefaultHotkey, out modifiers, out key);
         return (modifiers, key);
+    }
+
+    private static MonitorPlacementMode ParseMonitorModeOrDefault(string value)
+    {
+        return TryParseMonitorMode(value, out var mode) ? mode : MonitorPlacementMode.Primary;
     }
 
     private static NotchBarSettings LoadAndNormalize(string path)
@@ -157,14 +183,21 @@ public sealed class SettingsService
             ? settings.AutoHideDelayMs
             : DefaultAutoHideDelayMs;
         var hotkey = TryParseHotkey(settings.Hotkey, out _, out _) ? settings.Hotkey : DefaultHotkey;
+        var monitorMode = TryParseMonitorMode(settings.MonitorMode, out var parsedMonitorMode)
+            ? ToSettingValue(parsedMonitorMode)
+            : DefaultMonitorMode;
 
         return settings with
         {
             ApiPort = apiPort,
             AutoHideDelayMs = autoHideDelayMs,
-            Hotkey = hotkey
+            Hotkey = hotkey,
+            MonitorMode = monitorMode
         };
     }
+
+    private static string ToSettingValue(MonitorPlacementMode mode) =>
+        mode == MonitorPlacementMode.ActiveWindow ? "activeWindow" : "primary";
 
     private static string GetDefaultSettingsPath()
     {
@@ -180,4 +213,5 @@ public sealed record NotchBarSettings
     public string Hotkey { get; init; } = SettingsService.DefaultHotkey;
     public bool StartWithWindows { get; init; }
     public bool HideInFullscreen { get; init; } = true;
+    public string MonitorMode { get; init; } = SettingsService.DefaultMonitorMode;
 }
