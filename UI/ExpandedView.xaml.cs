@@ -1,4 +1,5 @@
 using System.Windows;
+using System.Windows.Media;
 using System.Windows.Threading;
 using NotchBar.Core;
 using UserControl = System.Windows.Controls.UserControl;
@@ -30,11 +31,26 @@ public partial class ExpandedView : UserControl
         _currentItem = item;
         TitleText.Text = item.Title;
         SummaryText.Text = item.Text;
-        DetailText.Text = string.IsNullOrWhiteSpace(item.Detail) ? "No additional detail" : item.Detail;
-        SecondaryText.Text = item.SecondaryText ?? string.Empty;
+        DetailText.Text = string.IsNullOrWhiteSpace(item.Detail) ? "No additional context" : item.Detail;
+
+        var secondary = item.SecondaryText?.Trim();
+        SecondaryText.Text = secondary ?? string.Empty;
+        SecondaryText.Visibility = string.IsNullOrWhiteSpace(secondary)
+            ? Visibility.Collapsed
+            : Visibility.Visible;
+
         ProgressBar.Visibility = item.Progress is null ? Visibility.Collapsed : Visibility.Visible;
         ProgressBar.Value = item.Progress ?? 0;
-        PinGlyph.Text = pinned ? "◆" : "◇";
+
+        var accentKey = item.IsNotification ? "NotificationAccent" : "Accent";
+        var haloKey = item.IsNotification ? "NotificationAccentSoft" : "AccentSoft";
+        StatusDot.Fill = (Brush)FindResource(accentKey);
+        StatusHalo.Background = (Brush)FindResource(haloKey);
+
+        PinGlyph.Fill = (Brush)FindResource(pinned ? "Accent" : "SecondaryText");
+        PinButton.Background = pinned
+            ? (Brush)FindResource("AccentSoft")
+            : Brushes.Transparent;
         PinButton.ToolTip = pinned ? "Unpin" : "Pin";
 
         RefreshUpdatedText();
