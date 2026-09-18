@@ -11,12 +11,12 @@ namespace NotchBar;
 public partial class MainWindow : Window, IDisposable
 {
     private static readonly Duration ItemTransitionDuration = new(TimeSpan.FromMilliseconds(140));
-    private static readonly Duration ExpandOutgoingDuration = new(TimeSpan.FromMilliseconds(90));
-    private static readonly Duration ExpandIncomingDuration = new(TimeSpan.FromMilliseconds(190));
-    private static readonly Duration CollapseOutgoingDuration = new(TimeSpan.FromMilliseconds(80));
-    private static readonly Duration CollapseIncomingDuration = new(TimeSpan.FromMilliseconds(150));
-    private static readonly TimeSpan ExpandIncomingDelay = TimeSpan.FromMilliseconds(70);
-    private static readonly TimeSpan CollapseIncomingDelay = TimeSpan.FromMilliseconds(45);
+    private static readonly Duration ExpandOutgoingDuration = new(TimeSpan.FromMilliseconds(105));
+    private static readonly Duration ExpandIncomingDuration = new(TimeSpan.FromMilliseconds(215));
+    private static readonly Duration CollapseOutgoingDuration = new(TimeSpan.FromMilliseconds(100));
+    private static readonly Duration CollapseIncomingDuration = new(TimeSpan.FromMilliseconds(170));
+    private static readonly TimeSpan ExpandIncomingDelay = TimeSpan.FromMilliseconds(52);
+    private static readonly TimeSpan CollapseIncomingDelay = TimeSpan.FromMilliseconds(42);
 
     private readonly StatusStore _statusStore;
     private readonly SettingsService _settings;
@@ -323,29 +323,51 @@ public partial class MainWindow : Window, IDisposable
         var incoming = next == NotchState.Compact ? CompactHost : ExpandedHost;
         var outgoingTranslate = previous == NotchState.Compact ? CompactHostTranslate : ExpandedHostTranslate;
         var incomingTranslate = next == NotchState.Compact ? CompactHostTranslate : ExpandedHostTranslate;
+        var outgoingScale = previous == NotchState.Compact ? CompactHostScale : ExpandedHostScale;
+        var incomingScale = next == NotchState.Compact ? CompactHostScale : ExpandedHostScale;
 
         var incomingWasVisible = incoming.Visibility == Visibility.Visible;
-        StopHostAnimationsPreservingCurrent(outgoing, outgoingTranslate);
-        StopHostAnimationsPreservingCurrent(incoming, incomingTranslate);
+        StopHostAnimationsPreservingCurrent(outgoing, outgoingTranslate, outgoingScale);
+        StopHostAnimationsPreservingCurrent(incoming, incomingTranslate, incomingScale);
+
+        if (expanding)
+        {
+            ExpandedContent.RunLayoutTransition(expanding: true, preserveCurrent: incomingWasVisible);
+        }
+        else
+        {
+            ExpandedContent.RunLayoutTransition(expanding: false, preserveCurrent: true);
+        }
 
         var outgoingOpacity = outgoing.Opacity;
         var outgoingY = outgoingTranslate.Y;
+        var outgoingScaleX = outgoingScale.ScaleX;
+        var outgoingScaleY = outgoingScale.ScaleY;
+
         var incomingOpacity = incomingWasVisible ? incoming.Opacity : 0d;
-        var incomingY = incomingWasVisible ? incomingTranslate.Y : expanding ? 6d : -4d;
+        var incomingY = incomingWasVisible ? incomingTranslate.Y : expanding ? 5d : -2d;
+        var incomingScaleX = incomingWasVisible ? incomingScale.ScaleX : 0.99d;
+        var incomingScaleY = incomingWasVisible ? incomingScale.ScaleY : expanding ? 0.965d : 0.975d;
 
         outgoing.Visibility = Visibility.Visible;
         incoming.Visibility = Visibility.Visible;
         outgoing.Opacity = outgoingOpacity;
         outgoingTranslate.Y = outgoingY;
+        outgoingScale.ScaleX = outgoingScaleX;
+        outgoingScale.ScaleY = outgoingScaleY;
         incoming.Opacity = incomingOpacity;
         incomingTranslate.Y = incomingY;
+        incomingScale.ScaleX = incomingScaleX;
+        incomingScale.ScaleY = incomingScaleY;
 
         var outgoingDuration = expanding ? ExpandOutgoingDuration : CollapseOutgoingDuration;
         var incomingDuration = expanding ? ExpandIncomingDuration : CollapseIncomingDuration;
         var incomingDelay = expanding ? ExpandIncomingDelay : CollapseIncomingDelay;
-        var outgoingTargetY = expanding ? -3d : 3d;
-        var incomingEase = new CubicEase { EasingMode = EasingMode.EaseOut };
-        var outgoingEase = new CubicEase { EasingMode = EasingMode.EaseInOut };
+        var outgoingTargetY = expanding ? -2d : -4d;
+        var outgoingTargetScaleX = expanding ? 0.985d : 0.99d;
+        var outgoingTargetScaleY = expanding ? 0.955d : 0.94d;
+        var incomingEase = new QuinticEase { EasingMode = EasingMode.EaseOut };
+        var outgoingEase = new CubicEase { EasingMode = EasingMode.EaseIn };
 
         outgoing.BeginAnimation(OpacityProperty, new DoubleAnimation(outgoingOpacity, 0, outgoingDuration)
         {
@@ -353,6 +375,16 @@ public partial class MainWindow : Window, IDisposable
             FillBehavior = FillBehavior.HoldEnd
         });
         outgoingTranslate.BeginAnimation(TranslateTransform.YProperty, new DoubleAnimation(outgoingY, outgoingTargetY, outgoingDuration)
+        {
+            EasingFunction = outgoingEase,
+            FillBehavior = FillBehavior.HoldEnd
+        });
+        outgoingScale.BeginAnimation(ScaleTransform.ScaleXProperty, new DoubleAnimation(outgoingScaleX, outgoingTargetScaleX, outgoingDuration)
+        {
+            EasingFunction = outgoingEase,
+            FillBehavior = FillBehavior.HoldEnd
+        });
+        outgoingScale.BeginAnimation(ScaleTransform.ScaleYProperty, new DoubleAnimation(outgoingScaleY, outgoingTargetScaleY, outgoingDuration)
         {
             EasingFunction = outgoingEase,
             FillBehavior = FillBehavior.HoldEnd
@@ -371,18 +403,29 @@ public partial class MainWindow : Window, IDisposable
                 return;
             }
 
-            StopHostAnimationsPreservingCurrent(outgoing, outgoingTranslate);
-            StopHostAnimationsPreservingCurrent(incoming, incomingTranslate);
+            StopHostAnimationsPreservingCurrent(outgoing, outgoingTranslate, outgoingScale);
+            StopHostAnimationsPreservingCurrent(incoming, incomingTranslate, incomingScale);
             outgoing.Visibility = Visibility.Collapsed;
-            outgoing.Opacity = 1;
-            outgoingTranslate.Y = 0;
+            ResetHost(outgoing, outgoingTranslate, outgoingScale);
             incoming.Visibility = Visibility.Visible;
-            incoming.Opacity = 1;
-            incomingTranslate.Y = 0;
+            ResetHost(incoming, incomingTranslate, incomingScale);
+            ExpandedContent.ResetLayoutTransition();
         };
 
         incoming.BeginAnimation(OpacityProperty, incomingOpacityAnimation);
         incomingTranslate.BeginAnimation(TranslateTransform.YProperty, new DoubleAnimation(incomingY, 0, incomingDuration)
+        {
+            BeginTime = incomingDelay,
+            EasingFunction = incomingEase,
+            FillBehavior = FillBehavior.HoldEnd
+        });
+        incomingScale.BeginAnimation(ScaleTransform.ScaleXProperty, new DoubleAnimation(incomingScaleX, 1, incomingDuration)
+        {
+            BeginTime = incomingDelay,
+            EasingFunction = incomingEase,
+            FillBehavior = FillBehavior.HoldEnd
+        });
+        incomingScale.BeginAnimation(ScaleTransform.ScaleYProperty, new DoubleAnimation(incomingScaleY, 1, incomingDuration)
         {
             BeginTime = incomingDelay,
             EasingFunction = incomingEase,
@@ -393,8 +436,9 @@ public partial class MainWindow : Window, IDisposable
     private void SetContentStateImmediate(NotchState visualState)
     {
         _layoutTransitionVersion++;
-        ResetHost(CompactHost, CompactHostTranslate);
-        ResetHost(ExpandedHost, ExpandedHostTranslate);
+        ResetHost(CompactHost, CompactHostTranslate, CompactHostScale);
+        ResetHost(ExpandedHost, ExpandedHostTranslate, ExpandedHostScale);
+        ExpandedContent.ResetLayoutTransition();
 
         CompactHost.Visibility = visualState == NotchState.Compact ? Visibility.Visible : Visibility.Collapsed;
         ExpandedHost.Visibility = visualState == NotchState.Expanded ? Visibility.Visible : Visibility.Collapsed;
@@ -412,22 +456,38 @@ public partial class MainWindow : Window, IDisposable
         }
     }
 
-    private static void StopHostAnimationsPreservingCurrent(FrameworkElement host, TranslateTransform translate)
+    private static void StopHostAnimationsPreservingCurrent(
+        FrameworkElement host,
+        TranslateTransform translate,
+        ScaleTransform scale)
     {
         var opacity = host.Opacity;
         var y = translate.Y;
+        var scaleX = scale.ScaleX;
+        var scaleY = scale.ScaleY;
         host.BeginAnimation(OpacityProperty, null);
         translate.BeginAnimation(TranslateTransform.YProperty, null);
+        scale.BeginAnimation(ScaleTransform.ScaleXProperty, null);
+        scale.BeginAnimation(ScaleTransform.ScaleYProperty, null);
         host.Opacity = opacity;
         translate.Y = y;
+        scale.ScaleX = scaleX;
+        scale.ScaleY = scaleY;
     }
 
-    private static void ResetHost(FrameworkElement host, TranslateTransform translate)
+    private static void ResetHost(
+        FrameworkElement host,
+        TranslateTransform translate,
+        ScaleTransform scale)
     {
         host.BeginAnimation(OpacityProperty, null);
         translate.BeginAnimation(TranslateTransform.YProperty, null);
+        scale.BeginAnimation(ScaleTransform.ScaleXProperty, null);
+        scale.BeginAnimation(ScaleTransform.ScaleYProperty, null);
         host.Opacity = 1;
         translate.Y = 0;
+        scale.ScaleX = 1;
+        scale.ScaleY = 1;
     }
 
     private void StatusStore_OnChanged(object? sender, StatusStoreChangedEventArgs e)
@@ -491,7 +551,7 @@ public partial class MainWindow : Window, IDisposable
         var compactWidth = CompactContent.GetPreferredWidth();
         var expandedWidth = Math.Max(ExpandedContent.GetPreferredWidth(), compactWidth + 36);
         var expandedHeight = ExpandedContent.GetPreferredHeight(expandedWidth);
-        _windowController.SetPreferredSize(compactWidth, expandedWidth, expandedHeight);
+        _windowController.SetPreferredSize(compactWidth, expandedWidth, expandedHeight, applyWindowSize);
     }
 
     private void TryRunPendingItemTransition()
