@@ -1,5 +1,5 @@
 using System.Windows;
-using System.Windows.Threading;
+using System.Windows.Media.Animation;\nusing System.Windows.Threading;
 using NotchBar.Core;
 using MediaBrush = System.Windows.Media.Brush;
 using UserControl = System.Windows.Controls.UserControl;
