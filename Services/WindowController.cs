@@ -100,14 +100,14 @@ public sealed class WindowController : IDisposable
 
         if (_handle == IntPtr.Zero)
         {
-            CommitDimensions(targetWidth, state == NotchState.Hidden ? CompactHeight : targetHeight);
+            CancelTransitionAndCommit(targetWidth, state == NotchState.Hidden ? CompactHeight : targetHeight);
             ApplyFallbackPosition(state);
             return;
         }
 
         if (state == NotchState.Hidden)
         {
-            CommitDimensions(targetWidth, CompactHeight);
+            CancelTransitionAndCommit(targetWidth, CompactHeight);
             PositionNative(state);
             return;
         }
@@ -228,9 +228,14 @@ public sealed class WindowController : IDisposable
             : new CubicEase { EasingMode = EasingMode.EaseInOut };
     }
 
-    private void CommitDimensions(double width, double height)
+    private void CancelTransitionAndCommit(double width, double height)
     {
         ++_dimensionTransitionVersion;
+        SetBaseDimensions(width, height);
+    }
+
+    private void SetBaseDimensions(double width, double height)
+    {
         _window.BeginAnimation(FrameworkElement.WidthProperty, null);
         _window.BeginAnimation(FrameworkElement.HeightProperty, null);
         _window.Width = width;
