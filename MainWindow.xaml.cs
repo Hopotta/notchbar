@@ -122,6 +122,7 @@ public partial class MainWindow : Window, IDisposable
         }
 
         _windowController.Attach();
+        WindowBackdropService.ApplyAcrylic(this);
         _monitorPlacementService.Start();
         _hotkeyService.Pressed += HotkeyService_OnPressed;
         _hotkeyService.RegistrationFailed += HotkeyService_OnRegistrationFailed;

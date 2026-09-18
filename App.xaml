@@ -4,48 +4,48 @@
              ShutdownMode="OnMainWindowClose">
     <Application.Resources>
         <LinearGradientBrush x:Key="IslandBackground" StartPoint="0,0" EndPoint="0,1">
-            <GradientStop Color="#D8212834" Offset="0" />
-            <GradientStop Color="#E3171C26" Offset="0.52" />
-            <GradientStop Color="#EA10141D" Offset="1" />
+            <GradientStop Color="#DDF7FBFF" Offset="0" />
+            <GradientStop Color="#CDEEF4F8" Offset="0.52" />
+            <GradientStop Color="#B8E5EDF4" Offset="1" />
         </LinearGradientBrush>
         <LinearGradientBrush x:Key="GlassSheen" StartPoint="0,0" EndPoint="0,1">
-            <GradientStop Color="#16FFFFFF" Offset="0" />
-            <GradientStop Color="#08FFFFFF" Offset="0.42" />
+            <GradientStop Color="#B8FFFFFF" Offset="0" />
+            <GradientStop Color="#55FFFFFF" Offset="0.42" />
             <GradientStop Color="#00FFFFFF" Offset="1" />
         </LinearGradientBrush>
         <LinearGradientBrush x:Key="PanelBackground" StartPoint="0,0" EndPoint="0,1">
-            <GradientStop Color="#28FFFFFF" Offset="0" />
-            <GradientStop Color="#12FFFFFF" Offset="1" />
+            <GradientStop Color="#CFFFFFFF" Offset="0" />
+            <GradientStop Color="#82FFFFFF" Offset="1" />
         </LinearGradientBrush>
         <LinearGradientBrush x:Key="GlassChipBackground" StartPoint="0,0" EndPoint="0,1">
-            <GradientStop Color="#30FFFFFF" Offset="0" />
-            <GradientStop Color="#18FFFFFF" Offset="1" />
+            <GradientStop Color="#B8FFFFFF" Offset="0" />
+            <GradientStop Color="#8AFFFFFF" Offset="1" />
         </LinearGradientBrush>
-        <SolidColorBrush x:Key="IslandBorder" Color="#4AFFFFFF" />
-        <SolidColorBrush x:Key="GlassEdge" Color="#35FFFFFF" />
-        <SolidColorBrush x:Key="InnerHairline" Color="#24FFFFFF" />
-        <SolidColorBrush x:Key="PanelBorder" Color="#30FFFFFF" />
-        <SolidColorBrush x:Key="SurfaceRaised" Color="#20FFFFFF" />
-        <SolidColorBrush x:Key="SurfaceHover" Color="#34FFFFFF" />
-        <SolidColorBrush x:Key="SurfacePressed" Color="#46FFFFFF" />
-        <SolidColorBrush x:Key="PrimaryText" Color="#F7F9FD" />
-        <SolidColorBrush x:Key="SecondaryText" Color="#C2CBD8" />
-        <SolidColorBrush x:Key="MutedText" Color="#8D99AA" />
-        <SolidColorBrush x:Key="Accent" Color="#8DE7BC" />
-        <SolidColorBrush x:Key="AccentSoft" Color="#2A8DE7BC" />
-        <SolidColorBrush x:Key="BuiltInAccent" Color="#A4B2C6" />
-        <SolidColorBrush x:Key="BuiltInAccentSoft" Color="#24A4B2C6" />
-        <SolidColorBrush x:Key="AccentBlue" Color="#94BAFF" />
-        <SolidColorBrush x:Key="NotificationAccent" Color="#F2C978" />
-        <SolidColorBrush x:Key="NotificationAccentSoft" Color="#2CF2C978" />
-        <SolidColorBrush x:Key="ProgressTrack" Color="#2AFFFFFF" />
+        <SolidColorBrush x:Key="IslandBorder" Color="#78A8BBC9" />
+        <SolidColorBrush x:Key="GlassEdge" Color="#70AFC2D0" />
+        <SolidColorBrush x:Key="InnerHairline" Color="#58AFC2D0" />
+        <SolidColorBrush x:Key="PanelBorder" Color="#B8FFFFFF" />
+        <SolidColorBrush x:Key="SurfaceRaised" Color="#8AFFFFFF" />
+        <SolidColorBrush x:Key="SurfaceHover" Color="#B8FFFFFF" />
+        <SolidColorBrush x:Key="SurfacePressed" Color="#D0FFFFFF" />
+        <SolidColorBrush x:Key="PrimaryText" Color="#172635" />
+        <SolidColorBrush x:Key="SecondaryText" Color="#4B6072" />
+        <SolidColorBrush x:Key="MutedText" Color="#718292" />
+        <SolidColorBrush x:Key="Accent" Color="#1D8EA3" />
+        <SolidColorBrush x:Key="AccentSoft" Color="#301D8EA3" />
+        <SolidColorBrush x:Key="BuiltInAccent" Color="#6B7C8D" />
+        <SolidColorBrush x:Key="BuiltInAccentSoft" Color="#286B7C8D" />
+        <SolidColorBrush x:Key="AccentBlue" Color="#3B82D6" />
+        <SolidColorBrush x:Key="NotificationAccent" Color="#CA7A24" />
+        <SolidColorBrush x:Key="NotificationAccentSoft" Color="#38CA7A24" />
+        <SolidColorBrush x:Key="ProgressTrack" Color="#4589A9BD" />
 
         <DropShadowEffect x:Key="IslandDepthShadow"
-                          Color="#05070D"
+                          Color="#31475A"
                           BlurRadius="18"
                           ShadowDepth="2"
                           Direction="270"
-                          Opacity="0.34" />
+                          Opacity="0.24" />
 
         <Style x:Key="CompactButtonStyle" TargetType="Button">
             <Setter Property="Background" Value="Transparent" />
