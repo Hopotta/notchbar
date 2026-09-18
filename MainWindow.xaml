@@ -18,6 +18,7 @@
         MouseEnter="Window_OnMouseEnter"
         MouseLeave="Window_OnMouseLeave"
         SourceInitialized="Window_OnSourceInitialized"
+        Loaded="Window_OnLoaded"
         Closed="Window_OnClosed">
     <Border x:Name="IslandBorder"
             Background="{DynamicResource IslandBackground}"

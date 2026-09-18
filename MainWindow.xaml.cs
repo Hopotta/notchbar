@@ -27,6 +27,7 @@ public partial class MainWindow : Window, IDisposable
     private readonly WindowController _windowController;
     private readonly AutoHideService _autoHideService;
     private readonly HotkeyService _hotkeyService = new();
+    private readonly WindowBackdropService _backdropService = new();
     private readonly FullscreenSuppressionService? _fullscreenSuppressionService;
     private string? _displayedItemId;
     private NotchState _renderedVisualState = NotchState.Hidden;
@@ -128,6 +129,14 @@ public partial class MainWindow : Window, IDisposable
         _hotkeyService.RegistrationFailed += HotkeyService_OnRegistrationFailed;
         _hotkeyService.Attach(this, _settings.HotkeyModifiers, _settings.HotkeyKey);
         _fullscreenSuppressionService?.Start();
+    }
+
+    private void Window_OnLoaded(object sender, RoutedEventArgs e)
+    {
+        if (!_disposed && !_backdropService.TryApply(this))
+        {
+            IslandBorder.Background = (System.Windows.Media.Brush)FindResource("IslandFallbackBackground");
+        }
     }
 
     private void MonitorPlacementService_OnChanged(object? sender, MonitorTargetChangedEventArgs e)
@@ -618,6 +627,7 @@ public partial class MainWindow : Window, IDisposable
         _hotkeyService.Pressed -= HotkeyService_OnPressed;
         _hotkeyService.RegistrationFailed -= HotkeyService_OnRegistrationFailed;
         _hotkeyService.Dispose();
+        _backdropService.Dispose();
         _autoHideService.Dispose();
         _windowController.Dispose();
         _monitorPlacementService.Dispose();
