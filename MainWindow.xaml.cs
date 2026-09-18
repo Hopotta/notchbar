@@ -277,7 +277,7 @@ public partial class MainWindow : Window, IDisposable
             _autoHideService.Cancel();
         }
 
-        RefreshItem();
+        RefreshItem(applyWindowSize: false);
         ApplyContentVisualState(visualState);
         _windowController.Apply(visualState);
         TryRunPendingItemTransition();
@@ -527,7 +527,7 @@ public partial class MainWindow : Window, IDisposable
             : _settings.AutoHideDelay;
     }
 
-    private void RefreshItem()
+    private void RefreshItem(bool applyWindowSize = true)
     {
         var item = _statusStore.GetDisplayItem();
         if (item is null)
