@@ -135,7 +135,7 @@ public partial class MainWindow : Window, IDisposable
     {
         if (!_disposed && !_backdropService.TryApply(this))
         {
-            IslandBorder.Background = (Brush)FindResource("IslandFallbackBackground");
+            IslandBorder.Background = (System.Windows.Media.Brush)FindResource("IslandFallbackBackground");
         }
     }
 
