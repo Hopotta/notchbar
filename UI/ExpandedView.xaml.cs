@@ -1,5 +1,6 @@
 using System.Windows;
-using System.Windows.Media.Animation;\nusing System.Windows.Threading;
+using System.Windows.Media.Animation;
+using System.Windows.Threading;
 using NotchBar.Core;
 using MediaBrush = System.Windows.Media.Brush;
 using UserControl = System.Windows.Controls.UserControl;
@@ -81,6 +82,70 @@ public partial class ExpandedView : UserControl
         LayoutRoot.Measure(new System.Windows.Size(Math.Max(1, availableWidth), double.PositiveInfinity));
         var minHeight = _usesSimpleBody ? SimpleMinPreferredHeight : StandardMinPreferredHeight;
         return Math.Ceiling(Math.Clamp(LayoutRoot.DesiredSize.Height + 4, minHeight, MaxPreferredHeight));
+    }
+
+    public void RunLayoutTransition(bool expanding, bool preserveCurrent)
+    {
+        if (!SystemParameters.ClientAreaAnimation)
+        {
+            ResetLayoutTransition();
+            return;
+        }
+
+        StopBodyMotionPreservingCurrent();
+
+        if (expanding && !preserveCurrent)
+        {
+            BodyMotionHost.Opacity = 0;
+            BodyMotionTranslate.Y = -6;
+        }
+
+        var currentOpacity = BodyMotionHost.Opacity;
+        var currentY = BodyMotionTranslate.Y;
+        var duration = new Duration(TimeSpan.FromMilliseconds(expanding ? 210 : 95));
+        var delay = expanding ? TimeSpan.FromMilliseconds(62) : TimeSpan.Zero;
+        var easing = new CubicEase
+        {
+            EasingMode = expanding ? EasingMode.EaseOut : EasingMode.EaseIn
+        };
+
+        BodyMotionHost.BeginAnimation(
+            OpacityProperty,
+            new DoubleAnimation(currentOpacity, expanding ? 1 : 0, duration)
+            {
+                BeginTime = delay,
+                EasingFunction = easing,
+                FillBehavior = FillBehavior.HoldEnd
+            },
+            HandoffBehavior.SnapshotAndReplace);
+
+        BodyMotionTranslate.BeginAnimation(
+            System.Windows.Media.TranslateTransform.YProperty,
+            new DoubleAnimation(currentY, expanding ? 0 : -5, duration)
+            {
+                BeginTime = delay,
+                EasingFunction = easing,
+                FillBehavior = FillBehavior.HoldEnd
+            },
+            HandoffBehavior.SnapshotAndReplace);
+    }
+
+    public void ResetLayoutTransition()
+    {
+        BodyMotionHost.BeginAnimation(OpacityProperty, null);
+        BodyMotionTranslate.BeginAnimation(System.Windows.Media.TranslateTransform.YProperty, null);
+        BodyMotionHost.Opacity = 1;
+        BodyMotionTranslate.Y = 0;
+    }
+
+    private void StopBodyMotionPreservingCurrent()
+    {
+        var opacity = BodyMotionHost.Opacity;
+        var y = BodyMotionTranslate.Y;
+        BodyMotionHost.BeginAnimation(OpacityProperty, null);
+        BodyMotionTranslate.BeginAnimation(System.Windows.Media.TranslateTransform.YProperty, null);
+        BodyMotionHost.Opacity = opacity;
+        BodyMotionTranslate.Y = y;
     }
 
     private void ApplyBodyContent(
