@@ -133,9 +133,9 @@ public partial class MainWindow : Window, IDisposable
 
     private void Window_OnLoaded(object sender, RoutedEventArgs e)
     {
-        if (!_disposed)
+        if (!_disposed && !_backdropService.TryApply(this))
         {
-            _ = _backdropService.TryApply(this);
+            IslandBorder.Background = (Brush)FindResource("IslandFallbackBackground");
         }
     }
 
