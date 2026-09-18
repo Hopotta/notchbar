@@ -133,13 +133,13 @@ public sealed class WindowController : IDisposable
         var currentHeight = GetEffectiveDimension(_window.ActualHeight, _window.Height, targetHeight);
         var transitionVersion = ++_dimensionTransitionVersion;
 
-        CommitDimensions(currentWidth, currentHeight);
+        SetBaseDimensions(currentWidth, currentHeight);
 
         if (!animate
             || (Math.Abs(currentWidth - targetWidth) <= 0.5
                 && Math.Abs(currentHeight - targetHeight) <= 0.5))
         {
-            CommitDimensions(targetWidth, targetHeight);
+            SetBaseDimensions(targetWidth, targetHeight);
             PositionNative(_lastState);
             return;
         }
@@ -169,7 +169,7 @@ public sealed class WindowController : IDisposable
                 return;
             }
 
-            CommitDimensions(targetWidth, targetHeight);
+            SetBaseDimensions(targetWidth, targetHeight);
             PositionNative(_lastState);
         };
 
