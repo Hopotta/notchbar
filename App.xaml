@@ -4,29 +4,29 @@
              ShutdownMode="OnMainWindowClose">
     <Application.Resources>
         <LinearGradientBrush x:Key="IslandBackground" StartPoint="0,0" EndPoint="0,1">
-            <GradientStop Color="#DDF7FBFF" Offset="0" />
-            <GradientStop Color="#CDEEF4F8" Offset="0.52" />
-            <GradientStop Color="#B8E5EDF4" Offset="1" />
+            <GradientStop Color="#B8F7FBFF" Offset="0" />
+            <GradientStop Color="#A8EEF4F8" Offset="0.52" />
+            <GradientStop Color="#94E5EDF4" Offset="1" />
         </LinearGradientBrush>
         <LinearGradientBrush x:Key="GlassSheen" StartPoint="0,0" EndPoint="0,1">
-            <GradientStop Color="#B8FFFFFF" Offset="0" />
-            <GradientStop Color="#55FFFFFF" Offset="0.42" />
+            <GradientStop Color="#9AFFFFFF" Offset="0" />
+            <GradientStop Color="#3CFFFFFF" Offset="0.42" />
             <GradientStop Color="#00FFFFFF" Offset="1" />
         </LinearGradientBrush>
         <LinearGradientBrush x:Key="PanelBackground" StartPoint="0,0" EndPoint="0,1">
-            <GradientStop Color="#CFFFFFFF" Offset="0" />
-            <GradientStop Color="#82FFFFFF" Offset="1" />
+            <GradientStop Color="#A6FFFFFF" Offset="0" />
+            <GradientStop Color="#62FFFFFF" Offset="1" />
         </LinearGradientBrush>
         <LinearGradientBrush x:Key="GlassChipBackground" StartPoint="0,0" EndPoint="0,1">
-            <GradientStop Color="#B8FFFFFF" Offset="0" />
-            <GradientStop Color="#8AFFFFFF" Offset="1" />
+            <GradientStop Color="#9AFFFFFF" Offset="0" />
+            <GradientStop Color="#6EFFFFFF" Offset="1" />
         </LinearGradientBrush>
-        <SolidColorBrush x:Key="IslandBorder" Color="#78A8BBC9" />
-        <SolidColorBrush x:Key="GlassEdge" Color="#70AFC2D0" />
-        <SolidColorBrush x:Key="InnerHairline" Color="#58AFC2D0" />
-        <SolidColorBrush x:Key="PanelBorder" Color="#B8FFFFFF" />
-        <SolidColorBrush x:Key="SurfaceRaised" Color="#8AFFFFFF" />
-        <SolidColorBrush x:Key="SurfaceHover" Color="#B8FFFFFF" />
+        <SolidColorBrush x:Key="IslandBorder" Color="#66A8BBC9" />
+        <SolidColorBrush x:Key="GlassEdge" Color="#5CAFC2D0" />
+        <SolidColorBrush x:Key="InnerHairline" Color="#4AAFC2D0" />
+        <SolidColorBrush x:Key="PanelBorder" Color="#9AFFFFFF" />
+        <SolidColorBrush x:Key="SurfaceRaised" Color="#6EFFFFFF" />
+        <SolidColorBrush x:Key="SurfaceHover" Color="#9AFFFFFF" />
         <SolidColorBrush x:Key="SurfacePressed" Color="#D0FFFFFF" />
         <SolidColorBrush x:Key="PrimaryText" Color="#172635" />
         <SolidColorBrush x:Key="SecondaryText" Color="#4B6072" />
