@@ -8,6 +8,11 @@
             <GradientStop Color="#A8EEF4F8" Offset="0.52" />
             <GradientStop Color="#94E5EDF4" Offset="1" />
         </LinearGradientBrush>
+        <LinearGradientBrush x:Key="IslandFallbackBackground" StartPoint="0,0" EndPoint="0,1">
+            <GradientStop Color="#EAF7FBFF" Offset="0" />
+            <GradientStop Color="#DEEAF2F7" Offset="0.52" />
+            <GradientStop Color="#D2DDE7EF" Offset="1" />
+        </LinearGradientBrush>
         <LinearGradientBrush x:Key="GlassSheen" StartPoint="0,0" EndPoint="0,1">
             <GradientStop Color="#9AFFFFFF" Offset="0" />
             <GradientStop Color="#3CFFFFFF" Offset="0.42" />
