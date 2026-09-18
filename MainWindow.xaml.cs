@@ -122,7 +122,7 @@ public partial class MainWindow : Window, IDisposable
         }
 
         _windowController.Attach();
-        WindowBackdropService.ApplyAcrylic(this);
+
         _monitorPlacementService.Start();
         _hotkeyService.Pressed += HotkeyService_OnPressed;
         _hotkeyService.RegistrationFailed += HotkeyService_OnRegistrationFailed;
@@ -227,6 +227,7 @@ public partial class MainWindow : Window, IDisposable
         if (!_disposed && !_isFullscreenSuppressed && _stateMachine.VisualState == NotchState.Expanded)
         {
             _autoHideService.Cancel();
+            _autoHideService.OnMouseEnter();
             _stateMachine.Collapse();
         }
     }
@@ -277,8 +278,8 @@ public partial class MainWindow : Window, IDisposable
         }
 
         RefreshItem();
-        _windowController.Apply(visualState);
         ApplyContentVisualState(visualState);
+        _windowController.Apply(visualState);
         TryRunPendingItemTransition();
     }
 

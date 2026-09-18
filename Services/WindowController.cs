@@ -152,11 +152,10 @@ public sealed class WindowController : IDisposable
         var animation = new DoubleAnimation(current, target, duration)
         {
             EasingFunction = easing,
-            FillBehavior = FillBehavior.Stop
+            FillBehavior = FillBehavior.HoldEnd
         };
 
         _window.BeginAnimation(property, animation, HandoffBehavior.SnapshotAndReplace);
-        _window.SetValue(property, target);
     }
 
     private void SetDimensionsImmediate(double width, double height)
