@@ -6,8 +6,6 @@
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
-            <RowDefinition Height="Auto" />
-            <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
 
         <Grid x:Name="HeaderContent"
@@ -66,71 +64,84 @@
             </Button>
         </Grid>
 
-        <ProgressBar x:Name="ProgressBar"
-                     Grid.Row="1"
-                     Margin="0,14,0,0"
-                     Minimum="0"
-                     Maximum="1"
-                     Style="{StaticResource IslandProgressBarStyle}"
-                     Visibility="Collapsed" />
+        <Grid x:Name="BodyMotionHost"
+              Grid.Row="1"
+              RenderTransformOrigin="0.5,0">
+            <Grid.RenderTransform>
+                <TranslateTransform x:Name="BodyMotionTranslate" />
+            </Grid.RenderTransform>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+            </Grid.RowDefinitions>
 
-        <Grid x:Name="BodyHost" Grid.Row="2">
-            <StackPanel x:Name="SimpleBody"
-                        Margin="34,12,0,0"
-                        Visibility="Collapsed">
-                <TextBlock x:Name="SimpleSecondaryText"
-                           MaxWidth="320"
-                           HorizontalAlignment="Left"
-                           Foreground="{DynamicResource PrimaryText}"
-                           FontSize="13.5"
-                           FontWeight="SemiBold"
-                           TextWrapping="Wrap" />
-                <TextBlock x:Name="SimpleDetailText"
-                           MaxWidth="320"
-                           Margin="0,3,0,0"
-                           HorizontalAlignment="Left"
-                           Foreground="{DynamicResource MutedText}"
-                           FontSize="11.5"
-                           TextWrapping="Wrap" />
-            </StackPanel>
+            <ProgressBar x:Name="ProgressBar"
+                         Grid.Row="0"
+                         Margin="0,14,0,0"
+                         Minimum="0"
+                         Maximum="1"
+                         Style="{StaticResource IslandProgressBarStyle}"
+                         Visibility="Collapsed" />
 
-            <Border x:Name="DetailPanel"
-                    Margin="0,14,0,0"
-                    Padding="13,11"
-                    Background="{DynamicResource PanelBackground}"
-                    BorderBrush="{DynamicResource PanelBorder}"
-                    BorderThickness="1"
-                    CornerRadius="12"
-                    Visibility="Collapsed">
-                <StackPanel>
-                    <TextBlock x:Name="DetailText"
-                               MaxWidth="480"
+            <Grid x:Name="BodyHost" Grid.Row="1">
+                <StackPanel x:Name="SimpleBody"
+                            Margin="34,12,0,0"
+                            Visibility="Collapsed">
+                    <TextBlock x:Name="SimpleSecondaryText"
+                               MaxWidth="320"
+                               HorizontalAlignment="Left"
                                Foreground="{DynamicResource PrimaryText}"
                                FontSize="13.5"
-                               LineHeight="19"
-                               TextWrapping="Wrap"
-                               MaxHeight="78" />
-                    <TextBlock x:Name="SecondaryText"
-                               MaxWidth="480"
-                               Foreground="{DynamicResource SecondaryText}"
+                               FontWeight="SemiBold"
+                               TextWrapping="Wrap" />
+                    <TextBlock x:Name="SimpleDetailText"
+                               MaxWidth="320"
+                               Margin="0,3,0,0"
+                               HorizontalAlignment="Left"
+                               Foreground="{DynamicResource MutedText}"
                                FontSize="11.5"
                                TextWrapping="Wrap" />
                 </StackPanel>
-            </Border>
-        </Grid>
 
-        <StackPanel x:Name="UpdatedPanel"
-                    Grid.Row="3"
-                    Margin="2,11,0,0"
-                    Orientation="Horizontal">
-            <Ellipse Width="4"
-                     Height="4"
-                     Margin="0,0,7,0"
-                     Fill="{DynamicResource MutedText}"
-                     VerticalAlignment="Center" />
-            <TextBlock x:Name="UpdatedText"
-                       Foreground="{DynamicResource MutedText}"
-                       FontSize="11" />
-        </StackPanel>
+                <Border x:Name="DetailPanel"
+                        Margin="0,14,0,0"
+                        Padding="13,11"
+                        Background="{DynamicResource PanelBackground}"
+                        BorderBrush="{DynamicResource PanelBorder}"
+                        BorderThickness="1"
+                        CornerRadius="12"
+                        Visibility="Collapsed">
+                    <StackPanel>
+                        <TextBlock x:Name="DetailText"
+                                   MaxWidth="480"
+                                   Foreground="{DynamicResource PrimaryText}"
+                                   FontSize="13.5"
+                                   LineHeight="19"
+                                   TextWrapping="Wrap"
+                                   MaxHeight="78" />
+                        <TextBlock x:Name="SecondaryText"
+                                   MaxWidth="480"
+                                   Foreground="{DynamicResource SecondaryText}"
+                                   FontSize="11.5"
+                                   TextWrapping="Wrap" />
+                    </StackPanel>
+                </Border>
+            </Grid>
+
+            <StackPanel x:Name="UpdatedPanel"
+                        Grid.Row="2"
+                        Margin="2,11,0,0"
+                        Orientation="Horizontal">
+                <Ellipse Width="4"
+                         Height="4"
+                         Margin="0,0,7,0"
+                         Fill="{DynamicResource MutedText}"
+                         VerticalAlignment="Center" />
+                <TextBlock x:Name="UpdatedText"
+                           Foreground="{DynamicResource MutedText}"
+                           FontSize="11" />
+            </StackPanel>
+        </Grid>
     </Grid>
 </UserControl>
