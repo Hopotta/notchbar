@@ -39,14 +39,6 @@
         <SolidColorBrush x:Key="NotificationAccent" Color="#CA7A24" />
         <SolidColorBrush x:Key="NotificationAccentSoft" Color="#38CA7A24" />
         <SolidColorBrush x:Key="ProgressTrack" Color="#4589A9BD" />
-
-        <DropShadowEffect x:Key="IslandDepthShadow"
-                          Color="#31475A"
-                          BlurRadius="18"
-                          ShadowDepth="2"
-                          Direction="270"
-                          Opacity="0.24" />
-
         <Style x:Key="CompactButtonStyle" TargetType="Button">
             <Setter Property="Background" Value="Transparent" />
             <Setter Property="Foreground" Value="{DynamicResource SecondaryText}" />

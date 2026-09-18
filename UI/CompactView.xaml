@@ -28,7 +28,7 @@
                      VerticalAlignment="Center" />
         </Border>
 
-        <Border Grid.Column="1"
+        <Border x:Name="TitleChip" Grid.Column="1"
                 MaxWidth="88"
                 Margin="8,0,0,0"
                 Padding="7,3"

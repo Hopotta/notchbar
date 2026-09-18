@@ -21,6 +21,14 @@ public partial class CompactView : UserControl
     public void ShowItem(StatusItem item, bool pinned)
     {
         TitleText.Text = item.Title;
+        TitleChip.Background = item.IsBuiltIn
+            ? System.Windows.Media.Brushes.Transparent
+            : (MediaBrush)FindResource("GlassChipBackground");
+        TitleChip.BorderBrush = item.IsBuiltIn
+            ? System.Windows.Media.Brushes.Transparent
+            : (MediaBrush)FindResource("PanelBorder");
+        TitleChip.BorderThickness = item.IsBuiltIn ? new Thickness(0) : new Thickness(1);
+        TitleChip.Padding = item.IsBuiltIn ? new Thickness(0) : new Thickness(7, 3, 7, 3);
         SummaryText.Text = item.Text;
 
         var secondary = item.SecondaryText?.Trim();
