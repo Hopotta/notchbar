@@ -13,9 +13,9 @@ public sealed class WindowController : IDisposable
     public const double DefaultExpandedHeight = 230;
     public const double HiddenTriggerHeight = 2;
 
-    private static readonly TimeSpan ExpandDuration = TimeSpan.FromMilliseconds(300);
-    private static readonly TimeSpan CollapseDuration = TimeSpan.FromMilliseconds(240);
-    private static readonly TimeSpan ContentResizeDuration = TimeSpan.FromMilliseconds(180);
+    private static readonly TimeSpan ExpandDuration = TimeSpan.FromMilliseconds(280);
+    private static readonly TimeSpan CollapseDuration = TimeSpan.FromMilliseconds(225);
+    private static readonly TimeSpan ContentResizeDuration = TimeSpan.FromMilliseconds(165);
 
     private const double MinCompactWidth = 286;
     private const double MaxCompactWidth = 520;
@@ -218,14 +218,13 @@ public sealed class WindowController : IDisposable
 
     private static IEasingFunction CreateMorphEasing(NotchState state, bool isStateMorph)
     {
-        if (!isStateMorph)
+        return new CriticallyDampedEase
         {
-            return new CubicEase { EasingMode = EasingMode.EaseOut };
-        }
-
-        return state is NotchState.Expanded or NotchState.Pinned
-            ? new QuinticEase { EasingMode = EasingMode.EaseOut }
-            : new CubicEase { EasingMode = EasingMode.EaseInOut };
+            Response = isStateMorph ? 0.34 : 0.3,
+            EasingMode = state is NotchState.Expanded or NotchState.Pinned
+                ? EasingMode.EaseOut
+                : EasingMode.EaseInOut
+        };
     }
 
     private void CancelTransitionAndCommit(double width, double height)

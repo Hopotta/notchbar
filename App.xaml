@@ -33,6 +33,8 @@
         <SolidColorBrush x:Key="SurfaceRaised" Color="#6EFFFFFF" />
         <SolidColorBrush x:Key="SurfaceHover" Color="#9AFFFFFF" />
         <SolidColorBrush x:Key="SurfacePressed" Color="#D0FFFFFF" />
+        <SolidColorBrush x:Key="HeaderHoverBackground" Color="#45FFFFFF" />
+        <SolidColorBrush x:Key="HeaderPressedBackground" Color="#88FFFFFF" />
         <SolidColorBrush x:Key="PrimaryText" Color="#172635" />
         <SolidColorBrush x:Key="SecondaryText" Color="#4B6072" />
         <SolidColorBrush x:Key="MutedText" Color="#718292" />

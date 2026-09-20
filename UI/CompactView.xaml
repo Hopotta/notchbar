@@ -30,7 +30,7 @@
 
         <Border x:Name="TitleChip" Grid.Column="1"
                 MaxWidth="88"
-                Margin="8,0,0,0"
+                Margin="6,0,0,0"
                 Padding="7,3"
                 Background="{DynamicResource GlassChipBackground}"
                 BorderBrush="{DynamicResource PanelBorder}"
@@ -64,9 +64,9 @@
 
         <Button x:Name="PinButton"
                 Grid.Column="4"
-                Width="30"
-                Height="28"
-                Margin="8,0,0,0"
+                Width="34"
+                Height="32"
+                Margin="6,0,0,0"
                 Padding="0"
                 Click="PinButton_OnClick"
                 ToolTip="Pin / unpin"

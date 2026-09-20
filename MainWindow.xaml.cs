@@ -10,13 +10,13 @@ namespace NotchBar;
 
 public partial class MainWindow : Window, IDisposable
 {
-    private static readonly Duration ItemTransitionDuration = new(TimeSpan.FromMilliseconds(140));
-    private static readonly Duration ExpandOutgoingDuration = new(TimeSpan.FromMilliseconds(105));
-    private static readonly Duration ExpandIncomingDuration = new(TimeSpan.FromMilliseconds(215));
-    private static readonly Duration CollapseOutgoingDuration = new(TimeSpan.FromMilliseconds(100));
-    private static readonly Duration CollapseIncomingDuration = new(TimeSpan.FromMilliseconds(170));
-    private static readonly TimeSpan ExpandIncomingDelay = TimeSpan.FromMilliseconds(52);
-    private static readonly TimeSpan CollapseIncomingDelay = TimeSpan.FromMilliseconds(42);
+    private static readonly Duration ItemTransitionDuration = new(TimeSpan.FromMilliseconds(160));
+    private static readonly Duration ExpandOutgoingDuration = new(TimeSpan.FromMilliseconds(165));
+    private static readonly Duration ExpandIncomingDuration = new(TimeSpan.FromMilliseconds(205));
+    private static readonly Duration CollapseOutgoingDuration = new(TimeSpan.FromMilliseconds(150));
+    private static readonly Duration CollapseIncomingDuration = new(TimeSpan.FromMilliseconds(190));
+    private static readonly TimeSpan ExpandIncomingDelay = TimeSpan.FromMilliseconds(16);
+    private static readonly TimeSpan CollapseIncomingDelay = TimeSpan.FromMilliseconds(12);
 
     private readonly StatusStore _statusStore;
     private readonly SettingsService _settings;
@@ -367,8 +367,16 @@ public partial class MainWindow : Window, IDisposable
         var outgoingTargetY = expanding ? -2d : -4d;
         var outgoingTargetScaleX = expanding ? 0.985d : 0.99d;
         var outgoingTargetScaleY = expanding ? 0.955d : 0.94d;
-        var incomingEase = new QuinticEase { EasingMode = EasingMode.EaseOut };
-        var outgoingEase = new CubicEase { EasingMode = EasingMode.EaseIn };
+        var incomingEase = new CriticallyDampedEase
+        {
+            Response = expanding ? 0.34 : 0.31,
+            EasingMode = EasingMode.EaseOut
+        };
+        var outgoingEase = new CriticallyDampedEase
+        {
+            Response = expanding ? 0.28 : 0.32,
+            EasingMode = EasingMode.EaseIn
+        };
 
         outgoing.BeginAnimation(OpacityProperty, new DoubleAnimation(outgoingOpacity, 0, outgoingDuration)
         {
@@ -585,7 +593,11 @@ public partial class MainWindow : Window, IDisposable
             : _expandedContentTranslate;
 
         _pendingItemTransition = false;
-        var easing = new CubicEase { EasingMode = EasingMode.EaseOut };
+        var easing = new CriticallyDampedEase
+        {
+            Response = 0.3,
+            EasingMode = EasingMode.EaseOut
+        };
 
         target.BeginAnimation(OpacityProperty, new DoubleAnimation(0.45, 1, ItemTransitionDuration)
         {

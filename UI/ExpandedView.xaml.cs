@@ -2,6 +2,7 @@ using System.Windows;
 using System.Windows.Media.Animation;
 using System.Windows.Threading;
 using NotchBar.Core;
+using NotchBar.Services;
 using MediaBrush = System.Windows.Media.Brush;
 using UserControl = System.Windows.Controls.UserControl;
 
@@ -51,7 +52,8 @@ public partial class ExpandedView : UserControl
         _usesSimpleBody = item.IsBuiltIn && item.Progress is null;
         ApplyBodyContent(detail, secondary, hasDetail, hasSecondary);
 
-        ProgressBar.Visibility = item.Progress is null ? Visibility.Collapsed : Visibility.Visible;
+        ProgressRow.Visibility = item.Progress is null ? Visibility.Collapsed : Visibility.Visible;
+        ProgressText.Text = item.Progress is { } progress ? progress.ToString("P0") : string.Empty;
         ProgressBar.Value = item.Progress ?? 0;
 
         var accentKey = item.IsNotification
@@ -102,10 +104,11 @@ public partial class ExpandedView : UserControl
 
         var currentOpacity = BodyMotionHost.Opacity;
         var currentY = BodyMotionTranslate.Y;
-        var duration = new Duration(TimeSpan.FromMilliseconds(expanding ? 210 : 95));
-        var delay = expanding ? TimeSpan.FromMilliseconds(62) : TimeSpan.Zero;
-        var easing = new CubicEase
+        var duration = new Duration(TimeSpan.FromMilliseconds(expanding ? 185 : 125));
+        var delay = expanding ? TimeSpan.FromMilliseconds(16) : TimeSpan.FromMilliseconds(8);
+        var easing = new CriticallyDampedEase
         {
+            Response = expanding ? 0.32 : 0.29,
             EasingMode = expanding ? EasingMode.EaseOut : EasingMode.EaseIn
         };
 
@@ -233,9 +236,23 @@ public partial class ExpandedView : UserControl
         PinClicked?.Invoke(this, EventArgs.Empty);
     }
 
+    private void HeaderContent_OnMouseLeftButtonDown(object sender, System.Windows.Input.MouseButtonEventArgs e)
+    {
+        if (e.OriginalSource is not System.Windows.Controls.Button)
+        {
+            HeaderContent.Background = (MediaBrush)FindResource("HeaderPressedBackground");
+        }
+    }
+
     private void HeaderContent_OnMouseLeftButtonUp(object sender, System.Windows.Input.MouseButtonEventArgs e)
     {
+        HeaderContent.ClearValue(System.Windows.Controls.Panel.BackgroundProperty);
         e.Handled = true;
         CollapseRequested?.Invoke(this, EventArgs.Empty);
+    }
+
+    private void HeaderContent_OnMouseLeave(object sender, System.Windows.Input.MouseEventArgs e)
+    {
+        HeaderContent.ClearValue(System.Windows.Controls.Panel.BackgroundProperty);
     }
 }

@@ -2,17 +2,32 @@
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              Background="Transparent">
-    <Grid x:Name="LayoutRoot" Margin="18,16,18,14">
+    <Grid x:Name="LayoutRoot" Margin="14,14,14,12">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
 
         <Grid x:Name="HeaderContent"
-              MouseLeftButtonUp="HeaderContent_OnMouseLeftButtonUp">
+              Cursor="Hand"
+              ToolTip="Click the header to collapse"
+              MouseLeftButtonDown="HeaderContent_OnMouseLeftButtonDown"
+              MouseLeftButtonUp="HeaderContent_OnMouseLeftButtonUp"
+              MouseLeave="HeaderContent_OnMouseLeave">
+            <Grid.Style>
+                <Style TargetType="Grid">
+                    <Setter Property="Background" Value="Transparent" />
+                    <Style.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter Property="Background" Value="{DynamicResource HeaderHoverBackground}" />
+                        </Trigger>
+                    </Style.Triggers>
+                </Style>
+            </Grid.Style>
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="Auto" />
                 <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
                 <ColumnDefinition Width="Auto" />
             </Grid.ColumnDefinitions>
 
@@ -47,10 +62,20 @@
                            TextTrimming="CharacterEllipsis" />
             </StackPanel>
 
+            <Path Grid.Column="2"
+                  Width="10"
+                  Height="6"
+                  Margin="0,0,10,0"
+                  Stretch="Fill"
+                  Fill="{DynamicResource MutedText}"
+                  Data="M1,5 L5,1 L9,5"
+                  IsHitTestVisible="False"
+                  VerticalAlignment="Center" />
+
             <Button x:Name="PinButton"
-                    Grid.Column="2"
-                    Width="32"
-                    Height="30"
+                    Grid.Column="3"
+                    Width="36"
+                    Height="34"
                     Padding="0"
                     Click="PinButton_OnClick"
                     ToolTip="Pin / unpin"
@@ -76,13 +101,27 @@
                 <RowDefinition Height="Auto" />
             </Grid.RowDefinitions>
 
-            <ProgressBar x:Name="ProgressBar"
-                         Grid.Row="0"
-                         Margin="0,14,0,0"
-                         Minimum="0"
-                         Maximum="1"
-                         Style="{StaticResource IslandProgressBarStyle}"
-                         Visibility="Collapsed" />
+            <Grid x:Name="ProgressRow"
+                  Grid.Row="0"
+                  Margin="0,14,0,0"
+                  Visibility="Collapsed">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <ProgressBar x:Name="ProgressBar"
+                             VerticalAlignment="Center"
+                             Minimum="0"
+                             Maximum="1"
+                             Style="{StaticResource IslandProgressBarStyle}" />
+                <TextBlock x:Name="ProgressText"
+                           Grid.Column="1"
+                           Margin="10,0,0,0"
+                           Foreground="{DynamicResource SecondaryText}"
+                           FontSize="11"
+                           FontWeight="SemiBold"
+                           VerticalAlignment="Center" />
+            </Grid>
 
             <Grid x:Name="BodyHost" Grid.Row="1">
                 <StackPanel x:Name="SimpleBody"
