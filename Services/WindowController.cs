@@ -1,6 +1,7 @@
 using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Interop;
+using System.Windows.Media;
 using System.Windows.Media.Animation;
 using NotchBar.Core;
 
@@ -33,6 +34,17 @@ public sealed class WindowController : IDisposable
     private IntPtr _handle;
     private NotchState _lastState = NotchState.Hidden;
     private long _dimensionTransitionVersion;
+    private readonly CriticallyDampedEase _positionEase = new();
+    private DateTime _positionTransitionStarted;
+    private TimeSpan _positionTransitionDuration;
+    private int _positionStartX;
+    private int _positionStartY;
+    private int _positionTargetX;
+    private int _positionTargetY;
+    private int _positionWidth;
+    private int _positionHeight;
+    private bool _positionTransitionActive;
+    private bool _deferNativePosition;
     private double _compactWidth = DefaultWindowWidth;
     private double _expandedWidth = DefaultWindowWidth;
     private double _expandedHeight = DefaultExpandedHeight;
@@ -94,6 +106,7 @@ public sealed class WindowController : IDisposable
     {
         var previousState = _lastState;
         _lastState = state;
+        StopPositionTransition();
 
         var targetWidth = GetTargetWidth(state);
         var targetHeight = GetTargetHeight(state);
@@ -105,11 +118,37 @@ public sealed class WindowController : IDisposable
             return;
         }
 
+        var animatePosition = SystemParameters.ClientAreaAnimation && !_isSuppressed;
+
         if (state == NotchState.Hidden)
         {
+            var shouldAnimateOut = animatePosition && previousState != NotchState.Hidden;
+            _deferNativePosition = shouldAnimateOut;
             CancelTransitionAndCommit(targetWidth, CompactHeight);
-            PositionNative(state);
+            _deferNativePosition = false;
+
+            if (shouldAnimateOut)
+            {
+                StartPositionTransition(NotchState.Hidden, CollapseDuration);
+            }
+            else
+            {
+                PositionNative(state);
+            }
+
             return;
+        }
+
+        if (previousState == NotchState.Hidden && animatePosition)
+        {
+            var currentWidth = GetEffectiveDimension(_window.ActualWidth, _window.Width, targetWidth);
+            var currentHeight = GetEffectiveDimension(_window.ActualHeight, _window.Height, targetHeight);
+            if (Math.Abs(currentWidth - targetWidth) <= 0.5
+                && Math.Abs(currentHeight - targetHeight) <= 0.5)
+            {
+                StartPositionTransition(state, ExpandDuration);
+                return;
+            }
         }
 
         var isStateMorph = previousState != state && previousState != NotchState.Hidden;
@@ -122,6 +161,94 @@ public sealed class WindowController : IDisposable
         StartDimensionTransition(targetWidth, targetHeight, baseDuration, easing, animate);
     }
 
+    private void StartPositionTransition(NotchState state, TimeSpan duration)
+    {
+        if (_handle == IntPtr.Zero || _needsDpiHandshake || !GetWindowRect(_handle, out var rect))
+        {
+            PositionNative(state);
+            return;
+        }
+
+        var dpi = GetDpiForWindow(_handle);
+        if (dpi == 0)
+        {
+            dpi = 96;
+        }
+
+        var bounds = _monitor.Bounds;
+        var compactPixels = Math.Max(1, (int)Math.Round(CompactHeight * dpi / 96d));
+        var triggerPixels = Math.Max(1, (int)Math.Round(HiddenTriggerHeight * dpi / 96d));
+        var height = rect.Bottom - rect.Top;
+        var width = rect.Right - rect.Left;
+        var targetY = state == NotchState.Hidden
+            ? bounds.Top - (compactPixels - triggerPixels)
+            : bounds.Top;
+
+        if (Math.Abs(rect.Top - targetY) <= 1)
+        {
+            PositionNative(state);
+            return;
+        }
+
+        _positionStartX = rect.Left;
+        _positionStartY = rect.Top;
+        _positionTargetX = bounds.Left + Math.Max(0, (bounds.Width - width) / 2);
+        _positionTargetY = targetY;
+        _positionWidth = width;
+        _positionHeight = height;
+        _positionTransitionStarted = DateTime.UtcNow;
+        _positionTransitionDuration = duration;
+        _positionEase.Response = state == NotchState.Hidden ? 0.3 : 0.28;
+        _positionEase.EasingMode = state == NotchState.Hidden
+            ? EasingMode.EaseInOut
+            : EasingMode.EaseOut;
+        _positionTransitionActive = true;
+
+        CompositionTarget.Rendering -= PositionTransition_OnRendering;
+        CompositionTarget.Rendering += PositionTransition_OnRendering;
+    }
+
+    private void PositionTransition_OnRendering(object? sender, EventArgs e)
+    {
+        if (!_positionTransitionActive || _disposed || _handle == IntPtr.Zero)
+        {
+            StopPositionTransition();
+            return;
+        }
+
+        var elapsed = DateTime.UtcNow - _positionTransitionStarted;
+        var progress = _positionTransitionDuration <= TimeSpan.Zero
+            ? 1d
+            : Math.Clamp(elapsed.TotalMilliseconds / _positionTransitionDuration.TotalMilliseconds, 0d, 1d);
+        var eased = _positionEase.Ease(progress);
+        var x = (int)Math.Round(_positionStartX + ((_positionTargetX - _positionStartX) * eased));
+        var y = (int)Math.Round(_positionStartY + ((_positionTargetY - _positionStartY) * eased));
+
+        _ = SetWindowPos(
+            _handle,
+            IntPtr.Zero,
+            x,
+            y,
+            _positionWidth,
+            _positionHeight,
+            SwpNoZOrder | SwpNoActivate);
+
+        if (progress >= 1d)
+        {
+            StopPositionTransition();
+            PositionNative(_lastState);
+        }
+    }
+
+    private void StopPositionTransition()
+    {
+        if (_positionTransitionActive)
+        {
+            _positionTransitionActive = false;
+        }
+
+        CompositionTarget.Rendering -= PositionTransition_OnRendering;
+    }
     private void StartDimensionTransition(
         double targetWidth,
         double targetHeight,
@@ -249,7 +376,7 @@ public sealed class WindowController : IDisposable
 
     private void Window_OnSizeChanged(object sender, SizeChangedEventArgs e)
     {
-        if (_disposed || _handle == IntPtr.Zero)
+        if (_disposed || _handle == IntPtr.Zero || _deferNativePosition || _positionTransitionActive)
         {
             return;
         }
@@ -331,6 +458,7 @@ public sealed class WindowController : IDisposable
         }
 
         _disposed = true;
+        StopPositionTransition();
         ++_dimensionTransitionVersion;
         _window.BeginAnimation(FrameworkElement.WidthProperty, null);
         _window.BeginAnimation(FrameworkElement.HeightProperty, null);

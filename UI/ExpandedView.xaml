@@ -9,25 +9,10 @@
         </Grid.RowDefinitions>
 
         <Grid x:Name="HeaderContent"
-              Cursor="Hand"
-              ToolTip="Click the header to collapse"
-              MouseLeftButtonDown="HeaderContent_OnMouseLeftButtonDown"
-              MouseLeftButtonUp="HeaderContent_OnMouseLeftButtonUp"
-              MouseLeave="HeaderContent_OnMouseLeave">
-            <Grid.Style>
-                <Style TargetType="Grid">
-                    <Setter Property="Background" Value="Transparent" />
-                    <Style.Triggers>
-                        <Trigger Property="IsMouseOver" Value="True">
-                            <Setter Property="Background" Value="{DynamicResource HeaderHoverBackground}" />
-                        </Trigger>
-                    </Style.Triggers>
-                </Style>
-            </Grid.Style>
+              MouseLeftButtonUp="HeaderContent_OnMouseLeftButtonUp">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="Auto" />
                 <ColumnDefinition Width="*" />
-                <ColumnDefinition Width="Auto" />
                 <ColumnDefinition Width="Auto" />
             </Grid.ColumnDefinitions>
 
@@ -62,20 +47,10 @@
                            TextTrimming="CharacterEllipsis" />
             </StackPanel>
 
-            <Path Grid.Column="2"
-                  Width="10"
-                  Height="6"
-                  Margin="0,0,10,0"
-                  Stretch="Fill"
-                  Fill="{DynamicResource MutedText}"
-                  Data="M1,5 L5,1 L9,5"
-                  IsHitTestVisible="False"
-                  VerticalAlignment="Center" />
-
             <Button x:Name="PinButton"
-                    Grid.Column="3"
-                    Width="36"
-                    Height="34"
+                    Grid.Column="2"
+                    Width="32"
+                    Height="30"
                     Padding="0"
                     Click="PinButton_OnClick"
                     ToolTip="Pin / unpin"

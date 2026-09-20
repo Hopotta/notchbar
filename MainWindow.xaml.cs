@@ -27,6 +27,7 @@ public partial class MainWindow : Window, IDisposable
     private readonly WindowController _windowController;
     private readonly AutoHideService _autoHideService;
     private readonly HotkeyService _hotkeyService = new();
+    private readonly WindowBackdropService _backdropService = new();
     private readonly FullscreenSuppressionService? _fullscreenSuppressionService;
     private string? _displayedItemId;
     private NotchState _renderedVisualState = NotchState.Hidden;
@@ -122,6 +123,7 @@ public partial class MainWindow : Window, IDisposable
         }
 
         _windowController.Attach();
+        _backdropService.TryApply(this);
 
         _monitorPlacementService.Start();
         _hotkeyService.Pressed += HotkeyService_OnPressed;
@@ -286,10 +288,43 @@ public partial class MainWindow : Window, IDisposable
 
     private void ApplyContentVisualState(NotchState visualState)
     {
-        if (_isFullscreenSuppressed || visualState == NotchState.Hidden)
+        if (_isFullscreenSuppressed)
         {
             SetContentStateImmediate(NotchState.Hidden);
             _renderedVisualState = NotchState.Hidden;
+            return;
+        }
+
+        if (visualState == NotchState.Hidden)
+        {
+            if (SystemParameters.ClientAreaAnimation
+                && _renderedVisualState is NotchState.Compact or NotchState.Expanded)
+            {
+                RunContentDismiss(_renderedVisualState);
+                _renderedVisualState = NotchState.Hidden;
+            }
+            else
+            {
+                SetContentStateImmediate(NotchState.Hidden);
+                _renderedVisualState = NotchState.Hidden;
+            }
+
+            return;
+        }
+
+        if (_renderedVisualState == NotchState.Hidden)
+        {
+            if (visualState == NotchState.Compact && SystemParameters.ClientAreaAnimation)
+            {
+                RunContentReveal();
+            }
+            else
+            {
+                SetContentStateImmediate(visualState);
+            }
+
+            _renderedVisualState = visualState;
+            _pendingItemTransition = false;
             return;
         }
 
@@ -313,6 +348,126 @@ public partial class MainWindow : Window, IDisposable
         RunContentMorph(_renderedVisualState, visualState);
         _renderedVisualState = visualState;
         _pendingItemTransition = false;
+    }
+
+    private void RunContentReveal()
+    {
+        var transitionVersion = ++_layoutTransitionVersion;
+        ResetHost(CompactHost, CompactHostTranslate, CompactHostScale);
+        ResetHost(ExpandedHost, ExpandedHostTranslate, ExpandedHostScale);
+        ExpandedContent.ResetLayoutTransition();
+
+        CompactHost.Visibility = Visibility.Visible;
+        ExpandedHost.Visibility = Visibility.Collapsed;
+        CompactHost.Opacity = 0;
+        CompactHostTranslate.Y = -5;
+        CompactHostScale.ScaleX = 0.985;
+        CompactHostScale.ScaleY = 0.97;
+
+        var easing = new CriticallyDampedEase
+        {
+            Response = 0.28,
+            EasingMode = EasingMode.EaseOut
+        };
+        var duration = new Duration(TimeSpan.FromMilliseconds(185));
+        var opacityAnimation = new DoubleAnimation(0, 1, duration)
+        {
+            EasingFunction = easing,
+            FillBehavior = FillBehavior.HoldEnd
+        };
+        opacityAnimation.Completed += (_, _) =>
+        {
+            if (_disposed || transitionVersion != _layoutTransitionVersion)
+            {
+                return;
+            }
+
+            ResetHost(CompactHost, CompactHostTranslate, CompactHostScale);
+        };
+
+        CompactHost.BeginAnimation(OpacityProperty, opacityAnimation);
+        CompactHostTranslate.BeginAnimation(
+            TranslateTransform.YProperty,
+            new DoubleAnimation(-5, 0, duration)
+            {
+                EasingFunction = easing,
+                FillBehavior = FillBehavior.HoldEnd
+            });
+        CompactHostScale.BeginAnimation(
+            ScaleTransform.ScaleXProperty,
+            new DoubleAnimation(0.985, 1, duration)
+            {
+                EasingFunction = easing,
+                FillBehavior = FillBehavior.HoldEnd
+            });
+        CompactHostScale.BeginAnimation(
+            ScaleTransform.ScaleYProperty,
+            new DoubleAnimation(0.97, 1, duration)
+            {
+                EasingFunction = easing,
+                FillBehavior = FillBehavior.HoldEnd
+            });
+    }
+
+    private void RunContentDismiss(NotchState previous)
+    {
+        var transitionVersion = ++_layoutTransitionVersion;
+        var outgoing = previous == NotchState.Compact ? CompactHost : ExpandedHost;
+        var outgoingTranslate = previous == NotchState.Compact ? CompactHostTranslate : ExpandedHostTranslate;
+        var outgoingScale = previous == NotchState.Compact ? CompactHostScale : ExpandedHostScale;
+
+        StopHostAnimationsPreservingCurrent(outgoing, outgoingTranslate, outgoingScale);
+        ExpandedContent.ResetLayoutTransition();
+        outgoing.Visibility = Visibility.Visible;
+
+        var outgoingOpacity = outgoing.Opacity;
+        var outgoingY = outgoingTranslate.Y;
+        var outgoingScaleX = outgoingScale.ScaleX;
+        var outgoingScaleY = outgoingScale.ScaleY;
+        var duration = new Duration(TimeSpan.FromMilliseconds(145));
+        var easing = new CriticallyDampedEase
+        {
+            Response = 0.27,
+            EasingMode = EasingMode.EaseIn
+        };
+        var opacityAnimation = new DoubleAnimation(outgoingOpacity, 0, duration)
+        {
+            EasingFunction = easing,
+            FillBehavior = FillBehavior.HoldEnd
+        };
+        opacityAnimation.Completed += (_, _) =>
+        {
+            if (_disposed || transitionVersion != _layoutTransitionVersion)
+            {
+                return;
+            }
+
+            outgoing.Visibility = Visibility.Collapsed;
+            ResetHost(outgoing, outgoingTranslate, outgoingScale);
+        };
+
+        outgoing.BeginAnimation(OpacityProperty, opacityAnimation);
+        outgoingTranslate.BeginAnimation(
+            TranslateTransform.YProperty,
+            new DoubleAnimation(outgoingY, -4, duration)
+            {
+                EasingFunction = easing,
+                FillBehavior = FillBehavior.HoldEnd
+            });
+        outgoingScale.BeginAnimation(
+            ScaleTransform.ScaleXProperty,
+            new DoubleAnimation(outgoingScaleX, 0.985, duration)
+            {
+                EasingFunction = easing,
+                FillBehavior = FillBehavior.HoldEnd
+            });
+        outgoingScale.BeginAnimation(
+            ScaleTransform.ScaleYProperty,
+            new DoubleAnimation(outgoingScaleY, 0.97, duration)
+            {
+                EasingFunction = easing,
+                FillBehavior = FillBehavior.HoldEnd
+            });
     }
 
     private void RunContentMorph(NotchState previous, NotchState next)
@@ -631,6 +786,7 @@ public partial class MainWindow : Window, IDisposable
         _hotkeyService.Pressed -= HotkeyService_OnPressed;
         _hotkeyService.RegistrationFailed -= HotkeyService_OnRegistrationFailed;
         _hotkeyService.Dispose();
+        _backdropService.Dispose();
         _autoHideService.Dispose();
         _windowController.Dispose();
         _monitorPlacementService.Dispose();
