@@ -27,7 +27,6 @@ public partial class MainWindow : Window, IDisposable
     private readonly WindowController _windowController;
     private readonly AutoHideService _autoHideService;
     private readonly HotkeyService _hotkeyService = new();
-    private readonly WindowBackdropService _backdropService = new();
     private readonly FullscreenSuppressionService? _fullscreenSuppressionService;
     private string? _displayedItemId;
     private NotchState _renderedVisualState = NotchState.Hidden;
@@ -123,7 +122,6 @@ public partial class MainWindow : Window, IDisposable
         }
 
         _windowController.Attach();
-        _backdropService.TryApply(this);
 
         _monitorPlacementService.Start();
         _hotkeyService.Pressed += HotkeyService_OnPressed;
@@ -786,7 +784,6 @@ public partial class MainWindow : Window, IDisposable
         _hotkeyService.Pressed -= HotkeyService_OnPressed;
         _hotkeyService.RegistrationFailed -= HotkeyService_OnRegistrationFailed;
         _hotkeyService.Dispose();
-        _backdropService.Dispose();
         _autoHideService.Dispose();
         _windowController.Dispose();
         _monitorPlacementService.Dispose();
