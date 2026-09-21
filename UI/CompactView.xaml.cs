@@ -1,4 +1,6 @@
+using System.Globalization;
 using System.Windows;
+using System.Windows.Controls;
 using System.Windows.Media;
 using NotchBar.Core;
 using MediaBrush = System.Windows.Media.Brush;
@@ -57,6 +59,7 @@ public partial class CompactView : UserControl
         SecondaryText.Visibility = string.IsNullOrWhiteSpace(secondary)
             ? Visibility.Collapsed
             : Visibility.Visible;
+        SecondaryText.FontWeight = isClock ? FontWeights.SemiBold : FontWeights.Normal;
 
         var accentKey = item.IsNotification
             ? "NotificationAccent"
@@ -85,9 +88,15 @@ public partial class CompactView : UserControl
         GetUntranslatedCenter(SummaryText, _summaryTranslate, ancestor),
         GetUntranslatedCenter(PinButton, _pinTranslate, ancestor));
 
+    public ClockTextAnchors CaptureClockTextAnchors(UIElement ancestor) => new(
+        CaptureTextAnchor(TitleText, _titleTranslate, ancestor),
+        CaptureTextAnchor(SummaryText, _summaryTranslate, ancestor),
+        CaptureTextAnchor(SecondaryText, _secondaryTranslate, ancestor));
+
     public void ApplyTransition(
         TransitionChoreographyFrame frame,
-        SharedElementOffsets offsets)
+        SharedElementOffsets offsets,
+        bool clockOverlayOwnsText = false)
     {
         var progress = frame.PositionProgress;
         SetTranslation(_statusTranslate, offsets.Status, progress);
@@ -98,9 +107,9 @@ public partial class CompactView : UserControl
 
         var sharedOpacity = frame.CompactSharedOpacity;
         StatusHalo.Opacity = sharedOpacity;
-        TitleChip.Opacity = sharedOpacity;
-        SummaryText.Opacity = sharedOpacity;
-        SecondaryText.Opacity = frame.CompactSecondaryOpacity;
+        TitleChip.Opacity = clockOverlayOwnsText ? 0 : sharedOpacity;
+        SummaryText.Opacity = clockOverlayOwnsText ? 0 : sharedOpacity;
+        SecondaryText.Opacity = clockOverlayOwnsText ? 0 : frame.CompactSecondaryOpacity;
 
         // 18px compact halo and 24px expanded halo meet at the same apparent
         // size during the handoff; text is never scaled.
@@ -122,6 +131,40 @@ public partial class CompactView : UserControl
         TitleChip.Opacity = 1;
         SummaryText.Opacity = 1;
         SecondaryText.Opacity = 1;
+    }
+
+    private static ClockTextAnchor CaptureTextAnchor(
+        TextBlock element,
+        TranslateTransform translation,
+        UIElement ancestor)
+    {
+        var dpi = VisualTreeHelper.GetDpi(element);
+        var formatted = new FormattedText(
+            string.IsNullOrEmpty(element.Text) ? "Ag" : element.Text,
+            CultureInfo.CurrentUICulture,
+            element.FlowDirection,
+            new Typeface(
+                element.FontFamily,
+                element.FontStyle,
+                element.FontWeight,
+                element.FontStretch),
+            element.FontSize,
+            System.Windows.Media.Brushes.Transparent,
+            dpi.PixelsPerDip);
+        var baselineFromTop = formatted.Baseline;
+        var leadingX = element.FlowDirection == System.Windows.FlowDirection.RightToLeft
+            ? element.ActualWidth
+            : 0d;
+        var transformed = element.TranslatePoint(
+            new Point(leadingX, baselineFromTop),
+            ancestor);
+
+        return new ClockTextAnchor(
+            new Point(
+                transformed.X - translation.X,
+                transformed.Y - translation.Y),
+            element.FontSize,
+            baselineFromTop);
     }
 
     private static TransformGroup CreateStatusTransform(

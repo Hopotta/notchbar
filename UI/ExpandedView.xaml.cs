@@ -1,4 +1,6 @@
+using System.Globalization;
 using System.Windows;
+using System.Windows.Controls;
 using System.Windows.Media;
 using System.Windows.Threading;
 using NotchBar.Core;
@@ -114,9 +116,19 @@ public partial class ExpandedView : UserControl
         GetUntranslatedCenter(SummaryText, _summaryTranslate, ancestor),
         GetUntranslatedCenter(PinButton, _pinTranslate, ancestor));
 
+    public ClockTextAnchors CaptureClockTextAnchors(UIElement ancestor) => new(
+        CaptureTextAnchor(TitleText, _titleTranslate, ancestor),
+        CaptureTextAnchor(SummaryText, _summaryTranslate, ancestor),
+        CaptureTextAnchor(
+            SimpleSecondaryText,
+            translation: null,
+            ancestor,
+            inheritedTranslationY: BodyMotionTranslate.Y));
+
     public void ApplyTransition(
         TransitionChoreographyFrame frame,
-        SharedElementOffsets offsets)
+        SharedElementOffsets offsets,
+        bool clockOverlayOwnsText = false)
     {
         var reverseProgress = frame.PositionProgress - 1d;
         SetTranslation(_statusTranslate, offsets.Status, reverseProgress);
@@ -126,8 +138,8 @@ public partial class ExpandedView : UserControl
 
         var sharedOpacity = frame.ExpandedSharedOpacity;
         StatusHalo.Opacity = sharedOpacity;
-        TitleText.Opacity = sharedOpacity;
-        SummaryText.Opacity = sharedOpacity;
+        TitleText.Opacity = clockOverlayOwnsText ? 0 : sharedOpacity;
+        SummaryText.Opacity = clockOverlayOwnsText ? 0 : sharedOpacity;
 
         var haloScale = (18d / 24d) + ((1d - (18d / 24d)) * frame.PositionProgress);
         _statusScale.ScaleX = haloScale;
@@ -136,6 +148,7 @@ public partial class ExpandedView : UserControl
         BodyMotionHost.Opacity = frame.ExpandedBodyOpacity;
         BodyMotionTranslate.Y = frame.ExpandedBodyOffsetY;
         BodyMotionHost.IsHitTestVisible = frame.ExpandedBodyOpacity > 0.95;
+        SimpleSecondaryText.Opacity = clockOverlayOwnsText ? 0 : 1;
     }
 
     public void ResetLayoutTransition()
@@ -149,9 +162,45 @@ public partial class ExpandedView : UserControl
         StatusHalo.Opacity = 1;
         TitleText.Opacity = 1;
         SummaryText.Opacity = 1;
+        SimpleSecondaryText.Opacity = 1;
         BodyMotionHost.Opacity = 1;
         BodyMotionTranslate.Y = 0;
         BodyMotionHost.IsHitTestVisible = true;
+    }
+
+    private static ClockTextAnchor CaptureTextAnchor(
+        TextBlock element,
+        TranslateTransform? translation,
+        UIElement ancestor,
+        double inheritedTranslationY = 0)
+    {
+        var dpi = VisualTreeHelper.GetDpi(element);
+        var formatted = new FormattedText(
+            string.IsNullOrEmpty(element.Text) ? "Ag" : element.Text,
+            CultureInfo.CurrentUICulture,
+            element.FlowDirection,
+            new Typeface(
+                element.FontFamily,
+                element.FontStyle,
+                element.FontWeight,
+                element.FontStretch),
+            element.FontSize,
+            System.Windows.Media.Brushes.Transparent,
+            dpi.PixelsPerDip);
+        var baselineFromTop = formatted.Baseline;
+        var leadingX = element.FlowDirection == System.Windows.FlowDirection.RightToLeft
+            ? element.ActualWidth
+            : 0d;
+        var transformed = element.TranslatePoint(
+            new Point(leadingX, baselineFromTop),
+            ancestor);
+
+        return new ClockTextAnchor(
+            new Point(
+                transformed.X - (translation?.X ?? 0),
+                transformed.Y - (translation?.Y ?? 0) - inheritedTranslationY),
+            element.FontSize,
+            baselineFromTop);
     }
 
     private static TransformGroup CreateStatusTransform(

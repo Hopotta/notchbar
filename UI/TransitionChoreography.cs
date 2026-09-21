@@ -143,6 +143,11 @@ public readonly record struct ClockTextAnchor(
     double FontSize,
     double BaselineFromTop);
 
+public readonly record struct ClockTextAnchors(
+    ClockTextAnchor Title,
+    ClockTextAnchor Time,
+    ClockTextAnchor Date);
+
 public readonly record struct ClockTextPlacement(
     Point TopLeft,
     Point LeadingBaseline,
