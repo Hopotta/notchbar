@@ -475,6 +475,13 @@ public partial class MainWindow : Window, IDisposable
 
         CompactContent.ShowItem(item, _stateMachine.IsPinned);
         ExpandedContent.ShowItem(item, _stateMachine.IsPinned);
+        if (_windowController.IsTransitionActive)
+        {
+            // The new text can change both header anchors. Re-arrange both
+            // views before the next shared-element frame instead of rendering
+            // one frame against stale positions.
+            _contentMorphPrepared = false;
+        }
 
         var compactWidth = CompactContent.GetPreferredWidth();
         var expandedWidth = Math.Max(ExpandedContent.GetPreferredWidth(), compactWidth + 36);
