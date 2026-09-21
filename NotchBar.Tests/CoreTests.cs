@@ -56,6 +56,76 @@ public sealed class StatusItemValidationTests
     }
 
     [Theory]
+    [InlineData("title", "Line\nBreak")]
+    [InlineData("title", "Column\tBreak")]
+    [InlineData("text", "Line\nBreak")]
+    [InlineData("text", "Column\tBreak")]
+    [InlineData("secondaryText", "Line\nBreak")]
+    [InlineData("secondaryText", "Column\tBreak")]
+    public void Validate_RejectsControlsInSingleLineFields(string fieldName, string value)
+    {
+        var request = fieldName switch
+        {
+            "title" => ValidRequest() with { Title = value },
+            "text" => ValidRequest() with { Text = value },
+            "secondaryText" => ValidRequest() with { SecondaryText = value },
+            _ => throw new ArgumentOutOfRangeException(nameof(fieldName))
+        };
+
+        var error = StatusItemValidation.Validate(request, "demo");
+
+        Assert.NotNull(error);
+        Assert.StartsWith(fieldName, error);
+    }
+
+    [Theory]
+    [InlineData("title", "Line\nBreak")]
+    [InlineData("text", "Column\tBreak")]
+    public void ValidateNotification_RejectsControlsInSingleLineFields(string fieldName, string value)
+    {
+        var request = fieldName switch
+        {
+            "title" => new NotificationRequest { Title = value, Text = "Body" },
+            "text" => new NotificationRequest { Title = "Notice", Text = value },
+            _ => throw new ArgumentOutOfRangeException(nameof(fieldName))
+        };
+
+        var error = StatusItemValidation.ValidateNotification(request);
+
+        Assert.NotNull(error);
+        Assert.StartsWith(fieldName, error);
+    }
+
+    [Fact]
+    public void Validate_AllowsTabsAndLineBreaksInDetail()
+    {
+        const string detail = "First line\r\nSecond line\tvalue";
+
+        Assert.Null(StatusItemValidation.Validate(ValidRequest() with { Detail = detail }, "demo"));
+        Assert.Null(StatusItemValidation.ValidateNotification(new NotificationRequest
+        {
+            Text = "Body",
+            Detail = detail
+        }));
+    }
+
+    [Fact]
+    public void Validate_RejectsUnsafeDetailControlCharacters()
+    {
+        const string detail = "Unsafe\u0001detail";
+
+        var itemError = StatusItemValidation.Validate(ValidRequest() with { Detail = detail }, "demo");
+        var notificationError = StatusItemValidation.ValidateNotification(new NotificationRequest
+        {
+            Text = "Body",
+            Detail = detail
+        });
+
+        Assert.StartsWith("detail", itemError);
+        Assert.StartsWith("detail", notificationError);
+    }
+
+    [Theory]
     [InlineData("good-id")]
     [InlineData("good.id_2")]
     public void ValidateId_AcceptsSupportedCharacters(string id)

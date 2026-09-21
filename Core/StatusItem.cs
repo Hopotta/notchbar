@@ -148,17 +148,37 @@ public static class StatusItemValidation
             return $"ttlSeconds must be between 1 and {MaxTtlSeconds}";
         }
 
-        if (ContainsUnsafeControlCharacter(title) || ContainsUnsafeControlCharacter(text) ||
-            ContainsUnsafeControlCharacter(secondaryText) || ContainsUnsafeControlCharacter(detail))
+        if (ContainsControlCharacter(title))
         {
-            return "text fields may not contain control characters";
+            return "title may not contain control characters";
+        }
+
+        if (ContainsControlCharacter(text))
+        {
+            return "text may not contain control characters";
+        }
+
+        if (ContainsControlCharacter(secondaryText))
+        {
+            return "secondaryText may not contain control characters";
+        }
+
+        if (ContainsUnsafeDetailControlCharacter(detail))
+        {
+            return "detail may contain only tabs and line breaks as control characters";
         }
 
         return null;
     }
 
-    private static bool ContainsUnsafeControlCharacter(string? value)
+    private static bool ContainsControlCharacter(string? value)
     {
-        return value?.Any(character => char.IsControl(character) && character is not '\r' and not '\n' and not '\t') == true;
+        return value?.Any(char.IsControl) == true;
+    }
+
+    private static bool ContainsUnsafeDetailControlCharacter(string? value)
+    {
+        return value?.Any(character =>
+            char.IsControl(character) && character is not '\r' and not '\n' and not '\t') == true;
     }
 }
