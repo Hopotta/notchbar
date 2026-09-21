@@ -24,7 +24,9 @@
             BorderBrush="Transparent"
             BorderThickness="0"
             CornerRadius="0,0,20,20"
-            ClipToBounds="True">
+            ClipToBounds="True"
+            SnapsToDevicePixels="False"
+            UseLayoutRounding="False">
         <Grid x:Name="ContentRoot" MouseLeftButtonUp="ContentRoot_OnMouseLeftButtonUp">
             <Border Height="1"
                     VerticalAlignment="Top"

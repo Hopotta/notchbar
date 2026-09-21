@@ -5,9 +5,9 @@ using System.Windows.Interop;
 namespace NotchBar.Services;
 
 /// <summary>
-/// Applies a bounded DWM blur region to the island while retaining the WPF
-/// rounded silhouette. The region is updated as the window animates so the
-/// native backdrop cannot paint outside the visible island.
+/// Applies a bounded DWM blur region while leaving the visible rounded
+/// silhouette to WPF, whose vector rendering provides smoother anti-aliased
+/// corners than a pixel-based window region.
 /// </summary>
 public sealed class WindowBlurService : IDisposable
 {
@@ -82,19 +82,6 @@ public sealed class WindowBlurService : IDisposable
         var height = Math.Max(1, clientRect.Bottom - clientRect.Top);
         var dpi = GetDpi(_hwnd);
         var radius = Math.Clamp((int)Math.Round(20d * dpi / 96d), 1, Math.Min(width, height) / 2);
-
-        var windowRegion = CreateIslandRegion(width, height, radius);
-        if (windowRegion == IntPtr.Zero)
-        {
-            return;
-        }
-
-        // SetWindowRgn transfers ownership to Windows when it succeeds. This
-        // clips both WPF and DWM rendering to the exact island silhouette.
-        if (SetWindowRgn(_hwnd, windowRegion, true) == 0)
-        {
-            DeleteObject(windowRegion);
-        }
 
         DisableBlurRegion();
 
@@ -231,9 +218,6 @@ public sealed class WindowBlurService : IDisposable
 
     [DllImport("user32.dll")]
     private static extern uint GetDpiForWindow(IntPtr hwnd);
-
-    [DllImport("user32.dll")]
-    private static extern int SetWindowRgn(IntPtr hwnd, IntPtr region, bool redraw);
 
     [DllImport("gdi32.dll")]
     private static extern IntPtr CreateRoundRectRgn(int left, int top, int right, int bottom, int width, int height);
