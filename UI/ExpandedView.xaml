@@ -22,7 +22,7 @@
                     CornerRadius="12"
                     Background="{DynamicResource AccentSoft}"
                     BorderBrush="{DynamicResource InnerHairline}"
-                    BorderThickness="1"
+                    BorderThickness="0"
                     VerticalAlignment="Top">
                 <Ellipse x:Name="StatusDot"
                          Width="7"
@@ -32,7 +32,7 @@
                          VerticalAlignment="Center" />
             </Border>
 
-            <StackPanel Grid.Column="1" Margin="10,-1,12,0">
+            <StackPanel x:Name="HeaderTextStack" Grid.Column="1" Margin="10,-1,12,0">
                 <TextBlock x:Name="TitleText"
                            Foreground="{DynamicResource SecondaryText}"
                            FontSize="11.5"
@@ -123,7 +123,7 @@
                         Padding="13,11"
                         Background="{DynamicResource PanelBackground}"
                         BorderBrush="{DynamicResource PanelBorder}"
-                        BorderThickness="1"
+                        BorderThickness="0"
                         CornerRadius="12"
                         Visibility="Collapsed">
                     <StackPanel>

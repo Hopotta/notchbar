@@ -3,7 +3,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:ui="clr-namespace:NotchBar.UI"
         Width="424"
-        Height="44"
+        Height="37"
         Background="Transparent"
         AllowsTransparency="True"
         ResizeMode="NoResize"
@@ -21,19 +21,14 @@
         Closed="Window_OnClosed">
     <Border x:Name="IslandBorder"
             Background="{DynamicResource IslandBackground}"
-            BorderBrush="{DynamicResource IslandBorder}"
-            BorderThickness="1,0,1,1"
+            BorderBrush="Transparent"
+            BorderThickness="0"
             CornerRadius="0,0,20,20"
             ClipToBounds="True">
         <Grid x:Name="ContentRoot" MouseLeftButtonUp="ContentRoot_OnMouseLeftButtonUp">
-            <Border Height="22"
+            <Border Height="1"
                     VerticalAlignment="Top"
                     Background="{DynamicResource GlassSheen}"
-                    IsHitTestVisible="False" />
-
-            <Border BorderBrush="{DynamicResource InnerHairline}"
-                    BorderThickness="0,0,0,1"
-                    CornerRadius="0,0,19,19"
                     IsHitTestVisible="False" />
 
             <Border x:Name="HiddenTrigger"

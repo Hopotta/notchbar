@@ -21,13 +21,15 @@ public partial class CompactView : UserControl
     public void ShowItem(StatusItem item, bool pinned)
     {
         TitleText.Text = item.Title;
+        var isClock = string.Equals(item.Id, StatusStore.ClockId, StringComparison.OrdinalIgnoreCase);
+        StatusHalo.Visibility = isClock ? Visibility.Collapsed : Visibility.Visible;
         TitleChip.Background = item.IsBuiltIn
             ? System.Windows.Media.Brushes.Transparent
             : (MediaBrush)FindResource("GlassChipBackground");
         TitleChip.BorderBrush = item.IsBuiltIn
             ? System.Windows.Media.Brushes.Transparent
             : (MediaBrush)FindResource("PanelBorder");
-        TitleChip.BorderThickness = item.IsBuiltIn ? new Thickness(0) : new Thickness(1);
+        TitleChip.BorderThickness = item.IsBuiltIn ? new Thickness(0) : new Thickness(0);
         TitleChip.Padding = item.IsBuiltIn ? new Thickness(0) : new Thickness(7, 3, 7, 3);
         SummaryText.Text = item.Text;
 

@@ -42,6 +42,14 @@ public partial class ExpandedView : UserControl
     {
         _currentItem = item;
         TitleText.Text = item.Title;
+        var isClock = string.Equals(item.Id, StatusStore.ClockId, StringComparison.OrdinalIgnoreCase);
+        StatusHalo.Visibility = isClock ? Visibility.Collapsed : Visibility.Visible;
+        HeaderTextStack.Margin = isClock
+            ? new Thickness(0, -1, 12, 0)
+            : new Thickness(10, -1, 12, 0);
+        SimpleBody.Margin = isClock
+            ? new Thickness(0, 12, 0, 0)
+            : new Thickness(34, 12, 0, 0);
         SummaryText.Text = item.Text;
 
         var detail = item.Detail?.Trim();
@@ -88,51 +96,10 @@ public partial class ExpandedView : UserControl
 
     public void RunLayoutTransition(bool expanding, bool preserveCurrent)
     {
-        if (!SystemParameters.ClientAreaAnimation)
-        {
-            ResetLayoutTransition();
-            return;
-        }
-
-        StopBodyMotionPreservingCurrent();
-
-        if (expanding && !preserveCurrent)
-        {
-            BodyMotionHost.Opacity = 0;
-            BodyMotionTranslate.Y = -6;
-        }
-
-        var currentOpacity = BodyMotionHost.Opacity;
-        var currentY = BodyMotionTranslate.Y;
-        var duration = new Duration(TimeSpan.FromMilliseconds(expanding ? 185 : 125));
-        var delay = expanding ? TimeSpan.FromMilliseconds(16) : TimeSpan.FromMilliseconds(8);
-        var easing = new CriticallyDampedEase
-        {
-            Response = expanding ? 0.32 : 0.29,
-            EasingMode = expanding ? EasingMode.EaseOut : EasingMode.EaseIn
-        };
-
-        BodyMotionHost.BeginAnimation(
-            OpacityProperty,
-            new DoubleAnimation(currentOpacity, expanding ? 1 : 0, duration)
-            {
-                BeginTime = delay,
-                EasingFunction = easing,
-                FillBehavior = FillBehavior.HoldEnd
-            },
-            HandoffBehavior.SnapshotAndReplace);
-
-        BodyMotionTranslate.BeginAnimation(
-            System.Windows.Media.TranslateTransform.YProperty,
-            new DoubleAnimation(currentY, expanding ? 0 : -5, duration)
-            {
-                BeginTime = delay,
-                EasingFunction = easing,
-                FillBehavior = FillBehavior.HoldEnd
-            },
-            HandoffBehavior.SnapshotAndReplace);
+        // The parent island owns the single shared transition progress. Keeping
+        // the body stable avoids a second fade/slide fighting the window motion.
+        ResetLayoutTransition();
     }
-
     public void ResetLayoutTransition()
     {
         BodyMotionHost.BeginAnimation(OpacityProperty, null);
