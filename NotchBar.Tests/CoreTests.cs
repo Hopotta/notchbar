@@ -147,6 +147,117 @@ public sealed class StatusStoreTests
         Assert.Null(store.GetRemainingNotificationLifetime());
     }
 
+    [Fact]
+    public void RegularItemCapacity_RejectsNewIdsBeyondLimit()
+    {
+        using var store = new StatusStore();
+
+        for (var index = 0; index < StatusStore.MaxRegularItems; index++)
+        {
+            store.Put(Request($"Item {index}"), $"item-{index}");
+        }
+
+        var exception = Assert.Throws<StatusStoreCapacityException>(
+            () => store.Put(Request("Overflow"), "overflow"));
+
+        Assert.Equal("regular item", exception.EntryKind);
+        Assert.Equal(StatusStore.MaxRegularItems, exception.Capacity);
+        Assert.Equal(
+            StatusStore.MaxRegularItems,
+            store.GetActiveItems().Count(item => !item.IsBuiltIn && !item.IsNotification));
+    }
+
+    [Fact]
+    public void RegularItemCapacity_AllowsExistingIdUpdateAtLimit()
+    {
+        using var store = new StatusStore();
+
+        for (var index = 0; index < StatusStore.MaxRegularItems; index++)
+        {
+            store.Put(Request($"Item {index}"), $"item-{index}");
+        }
+
+        var updated = store.Put(Request("Updated"), "item-0");
+
+        Assert.Equal("Updated", updated.Text);
+        Assert.Equal(
+            "Updated",
+            store.GetActiveItems().Single(item => item.Id == "item-0").Text);
+    }
+
+    [Fact]
+    public void RegularItemCapacity_ExpiredItemsReleaseSlotsImmediately()
+    {
+        var time = new ManualTimeProvider(DateTimeOffset.Parse("2026-09-17T00:00:00Z"));
+        using var store = new StatusStore(time);
+
+        for (var index = 0; index < StatusStore.MaxRegularItems; index++)
+        {
+            store.Put(Request($"Item {index}", ttlSeconds: 1), $"item-{index}");
+        }
+
+        time.Advance(TimeSpan.FromSeconds(2));
+
+        var replacement = store.Put(Request("Replacement"), "replacement");
+
+        Assert.Equal("replacement", replacement.Id);
+        Assert.Single(store.GetActiveItems(), item => !item.IsBuiltIn);
+    }
+
+    [Fact]
+    public void NotificationCapacity_RejectsNotificationsBeyondLimit()
+    {
+        using var store = new StatusStore();
+
+        for (var index = 0; index < StatusStore.MaxNotifications; index++)
+        {
+            store.AddNotification(Notification($"Notification {index}"));
+        }
+
+        var exception = Assert.Throws<StatusStoreCapacityException>(
+            () => store.AddNotification(Notification("Overflow")));
+
+        Assert.Equal("notification", exception.EntryKind);
+        Assert.Equal(StatusStore.MaxNotifications, exception.Capacity);
+        Assert.Equal(
+            StatusStore.MaxNotifications,
+            store.GetActiveItems().Count(item => item.IsNotification));
+    }
+
+    [Fact]
+    public void ConcurrentRegularAdmissions_NeverExceedCapacity()
+    {
+        using var store = new StatusStore();
+        var admitted = 0;
+        var rejected = 0;
+        var attempts = StatusStore.MaxRegularItems + 16;
+
+        Parallel.For(0, attempts, index =>
+        {
+            try
+            {
+                store.Put(Request($"Item {index}"), $"item-{index}");
+                Interlocked.Increment(ref admitted);
+            }
+            catch (StatusStoreCapacityException)
+            {
+                Interlocked.Increment(ref rejected);
+            }
+        });
+
+        Assert.Equal(StatusStore.MaxRegularItems, admitted);
+        Assert.Equal(attempts - StatusStore.MaxRegularItems, rejected);
+        Assert.Equal(
+            StatusStore.MaxRegularItems,
+            store.GetActiveItems().Count(item => !item.IsBuiltIn && !item.IsNotification));
+    }
+
+    private static NotificationRequest Notification(string text, int ttlSeconds = 10) => new()
+    {
+        Text = text,
+        TtlSeconds = ttlSeconds
+    };
+
     private static StatusItemRequest Request(string text, int priority = 50, int ttlSeconds = 10) => new()
     {
         Title = "Test",

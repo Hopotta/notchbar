@@ -7,7 +7,10 @@ namespace NotchBar.Core;
 public sealed class StatusStore : IDisposable
 {
     public const string ClockId = "clock";
+    public const int MaxRegularItems = 64;
+    public const int MaxNotifications = 32;
 
+    private readonly object _mutationGate = new();
     private readonly ConcurrentDictionary<string, StatusItem> _items = new(StringComparer.OrdinalIgnoreCase);
     private readonly TimeProvider _timeProvider;
     private readonly Timer _expiryTimer;
@@ -84,6 +87,7 @@ public sealed class StatusStore : IDisposable
             throw new InvalidOperationException($"'{id}' is reserved for a built-in item");
         }
 
+        var now = _timeProvider.GetUtcNow();
         var item = new StatusItem
         {
             Id = id,
@@ -95,16 +99,31 @@ public sealed class StatusStore : IDisposable
             Priority = request.Priority ?? 50,
             TtlSeconds = request.TtlSeconds!.Value,
             WakeOnUpdate = request.WakeOnUpdate ?? false,
-            UpdatedAt = _timeProvider.GetUtcNow()
+            UpdatedAt = now
         };
 
-        _items[id] = item;
+        lock (_mutationGate)
+        {
+            var updatesActiveRegularItem =
+                _items.TryGetValue(id, out var existing) &&
+                !existing.IsBuiltIn &&
+                !existing.IsNotification &&
+                !existing.IsExpired(now);
+            if (!updatesActiveRegularItem && CountActiveItems(now, notifications: false) >= MaxRegularItems)
+            {
+                throw new StatusStoreCapacityException("regular item", MaxRegularItems);
+            }
+
+            _items[id] = item;
+        }
+
         Changed?.Invoke(this, new StatusStoreChangedEventArgs(item, item.WakeOnUpdate, false));
         return item;
     }
 
     public StatusItem AddNotification(NotificationRequest request)
     {
+        var now = _timeProvider.GetUtcNow();
         var item = new StatusItem
         {
             Id = $"notification-{Guid.NewGuid():N}",
@@ -114,11 +133,20 @@ public sealed class StatusStore : IDisposable
             Priority = request.Priority ?? 60,
             TtlSeconds = request.TtlSeconds ?? 8,
             WakeOnUpdate = true,
-            UpdatedAt = _timeProvider.GetUtcNow(),
+            UpdatedAt = now,
             IsNotification = true
         };
 
-        _items[item.Id] = item;
+        lock (_mutationGate)
+        {
+            if (CountActiveItems(now, notifications: true) >= MaxNotifications)
+            {
+                throw new StatusStoreCapacityException("notification", MaxNotifications);
+            }
+
+            _items[item.Id] = item;
+        }
+
         Changed?.Invoke(this, new StatusStoreChangedEventArgs(item, true, false));
         return item;
     }
@@ -131,7 +159,12 @@ public sealed class StatusStore : IDisposable
             return false;
         }
 
-        var deleted = _items.TryRemove(id, out removed);
+        bool deleted;
+        lock (_mutationGate)
+        {
+            deleted = _items.TryRemove(id, out removed);
+        }
+
         if (deleted && removed is not null)
         {
             Changed?.Invoke(this, new StatusStoreChangedEventArgs(removed, false, true));
@@ -155,9 +188,17 @@ public sealed class StatusStore : IDisposable
             IsBuiltIn = true
         };
 
-        _items[ClockId] = item;
+        lock (_mutationGate)
+        {
+            _items[ClockId] = item;
+        }
+
         Changed?.Invoke(this, new StatusStoreChangedEventArgs(item, false, false));
     }
+
+    private int CountActiveItems(DateTimeOffset now, bool notifications) =>
+        _items.Values.Count(item =>
+            !item.IsBuiltIn && item.IsNotification == notifications && !item.IsExpired(now));
 
     private void RemoveExpired()
     {
@@ -167,13 +208,27 @@ public sealed class StatusStore : IDisposable
         }
 
         var now = _timeProvider.GetUtcNow();
-        var collection = (ICollection<KeyValuePair<string, StatusItem>>)_items;
-        foreach (var pair in _items)
+        List<StatusItem>? removedItems = null;
+        lock (_mutationGate)
         {
-            if (pair.Value.IsExpired(now) && collection.Remove(pair))
+            var collection = (ICollection<KeyValuePair<string, StatusItem>>)_items;
+            foreach (var pair in _items)
             {
-                Changed?.Invoke(this, new StatusStoreChangedEventArgs(pair.Value, false, true));
+                if (pair.Value.IsExpired(now) && collection.Remove(pair))
+                {
+                    (removedItems ??= []).Add(pair.Value);
+                }
             }
+        }
+
+        if (removedItems is null)
+        {
+            return;
+        }
+
+        foreach (var removedItem in removedItems)
+        {
+            Changed?.Invoke(this, new StatusStoreChangedEventArgs(removedItem, false, true));
         }
     }
 
@@ -187,6 +242,14 @@ public sealed class StatusStore : IDisposable
         _disposed = true;
         _expiryTimer.Dispose();
     }
+}
+
+public sealed class StatusStoreCapacityException(string entryKind, int capacity)
+    : InvalidOperationException($"Active {entryKind} limit of {capacity} has been reached")
+{
+    public string EntryKind { get; } = entryKind;
+
+    public int Capacity { get; } = capacity;
 }
 
 public sealed class StatusStoreChangedEventArgs(StatusItem item, bool wakeOnUpdate, bool removed) : EventArgs

@@ -90,7 +90,14 @@ public sealed class ApiService
                 return Results.BadRequest(new { error = $"'{id}' is reserved for a built-in item" });
             }
 
-            return Results.Ok(_store.Put(request, id));
+            try
+            {
+                return Results.Ok(_store.Put(request, id));
+            }
+            catch (StatusStoreCapacityException exception)
+            {
+                return Results.Json(new { error = exception.Message }, statusCode: StatusCodes.Status429TooManyRequests);
+            }
         });
 
         app.MapDelete("/api/v1/items/{id}", (string id) =>
@@ -122,7 +129,14 @@ public sealed class ApiService
                 return Results.BadRequest(new { error });
             }
 
-            return Results.Ok(_store.AddNotification(request));
+            try
+            {
+                return Results.Ok(_store.AddNotification(request));
+            }
+            catch (StatusStoreCapacityException exception)
+            {
+                return Results.Json(new { error = exception.Message }, statusCode: StatusCodes.Status429TooManyRequests);
+            }
         });
     }
 
