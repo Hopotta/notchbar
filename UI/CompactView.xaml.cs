@@ -23,6 +23,9 @@ public partial class CompactView : UserControl
         TitleText.Text = item.Title;
         var isClock = string.Equals(item.Id, StatusStore.ClockId, StringComparison.OrdinalIgnoreCase);
         StatusHalo.Visibility = isClock ? Visibility.Collapsed : Visibility.Visible;
+        TitleChip.Margin = isClock
+            ? new Thickness(0)
+            : new Thickness(6, 0, 0, 0);
         TitleChip.Background = item.IsBuiltIn
             ? System.Windows.Media.Brushes.Transparent
             : (MediaBrush)FindResource("GlassChipBackground");

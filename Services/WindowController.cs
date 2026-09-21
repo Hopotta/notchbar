@@ -18,7 +18,7 @@ public sealed class WindowController : IDisposable
     private const double MaxCompactWidth = 520;
     private const double MinExpandedWidth = 360;
     private const double MaxExpandedWidth = 560;
-    private const double MinExpandedHeight = 148;
+    private const double MinExpandedHeight = 118;
     private const double MaxExpandedHeight = 300;
 
     private const uint SwpNoSize = 0x0001;
