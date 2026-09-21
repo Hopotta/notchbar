@@ -1,5 +1,4 @@
 using System.Windows;
-using System.Windows.Media.Animation;
 using System.Windows.Threading;
 using NotchBar.Core;
 using NotchBar.Services;
@@ -94,28 +93,12 @@ public partial class ExpandedView : UserControl
         return Math.Ceiling(Math.Clamp(LayoutRoot.DesiredSize.Height + 4, minHeight, MaxPreferredHeight));
     }
 
-    public void RunLayoutTransition(bool expanding, bool preserveCurrent)
-    {
-        // The parent island owns the single shared transition progress. Keeping
-        // the body stable avoids a second fade/slide fighting the window motion.
-        ResetLayoutTransition();
-    }
     public void ResetLayoutTransition()
     {
         BodyMotionHost.BeginAnimation(OpacityProperty, null);
         BodyMotionTranslate.BeginAnimation(System.Windows.Media.TranslateTransform.YProperty, null);
         BodyMotionHost.Opacity = 1;
         BodyMotionTranslate.Y = 0;
-    }
-
-    private void StopBodyMotionPreservingCurrent()
-    {
-        var opacity = BodyMotionHost.Opacity;
-        var y = BodyMotionTranslate.Y;
-        BodyMotionHost.BeginAnimation(OpacityProperty, null);
-        BodyMotionTranslate.BeginAnimation(System.Windows.Media.TranslateTransform.YProperty, null);
-        BodyMotionHost.Opacity = opacity;
-        BodyMotionTranslate.Y = y;
     }
 
     private void ApplyBodyContent(

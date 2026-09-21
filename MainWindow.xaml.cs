@@ -60,7 +60,6 @@ public partial class MainWindow : Window, IDisposable
         CompactContent.PinClicked += Pin_OnClicked;
         ExpandedContent.PinClicked += Pin_OnClicked;
         ExpandedContent.CollapseRequested += ExpandedContent_OnCollapseRequested;
-        CompositionTarget.Rendering += CompositionTarget_OnRendering;
 
         RefreshItem();
         ApplyVisualState(_stateMachine.Current);
@@ -464,25 +463,6 @@ public partial class MainWindow : Window, IDisposable
         {
             SetContentStateImmediate(visualState);
         }
-    }
-
-    private static void StopHostAnimationsPreservingCurrent(
-        FrameworkElement host,
-        TranslateTransform translate,
-        ScaleTransform scale)
-    {
-        var opacity = host.Opacity;
-        var y = translate.Y;
-        var scaleX = scale.ScaleX;
-        var scaleY = scale.ScaleY;
-        host.BeginAnimation(OpacityProperty, null);
-        translate.BeginAnimation(TranslateTransform.YProperty, null);
-        scale.BeginAnimation(ScaleTransform.ScaleXProperty, null);
-        scale.BeginAnimation(ScaleTransform.ScaleYProperty, null);
-        host.Opacity = opacity;
-        translate.Y = y;
-        scale.ScaleX = scaleX;
-        scale.ScaleY = scaleY;
     }
 
     private static void ResetHost(
