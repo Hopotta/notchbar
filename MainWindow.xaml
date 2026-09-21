@@ -51,6 +51,37 @@
                   Visibility="Collapsed">
                 <ui:ExpandedView x:Name="ExpandedContent" />
             </Grid>
+
+            <Canvas x:Name="ClockTransitionOverlay"
+                    Panel.ZIndex="10"
+                    ClipToBounds="True"
+                    IsHitTestVisible="False"
+                    Visibility="Collapsed">
+                <TextBlock x:Name="ClockTitleOverlay"
+                           Foreground="{DynamicResource SecondaryText}"
+                           FontSize="10.5"
+                           FontWeight="SemiBold">
+                    <TextBlock.RenderTransform>
+                        <ScaleTransform x:Name="ClockTitleOverlayScale" />
+                    </TextBlock.RenderTransform>
+                </TextBlock>
+                <TextBlock x:Name="ClockTimeOverlay"
+                           Foreground="{DynamicResource PrimaryText}"
+                           FontSize="13"
+                           FontWeight="SemiBold">
+                    <TextBlock.RenderTransform>
+                        <ScaleTransform x:Name="ClockTimeOverlayScale" />
+                    </TextBlock.RenderTransform>
+                </TextBlock>
+                <TextBlock x:Name="ClockDateOverlay"
+                           Foreground="{DynamicResource MutedText}"
+                           FontSize="11"
+                           FontWeight="SemiBold">
+                    <TextBlock.RenderTransform>
+                        <ScaleTransform x:Name="ClockDateOverlayScale" />
+                    </TextBlock.RenderTransform>
+                </TextBlock>
+            </Canvas>
         </Grid>
     </Border>
 </Window>

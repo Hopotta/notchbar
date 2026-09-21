@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Windows;
+using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
@@ -29,6 +30,11 @@ public partial class MainWindow : Window, IDisposable
     private string? _displayedItemId;
     private bool _pendingItemTransition;
     private bool _contentMorphPrepared;
+    private bool _displayedItemIsClock;
+    private bool _clockAnchorsAvailable;
+    private SharedElementOffsets _sharedElementOffsets;
+    private ClockTextAnchors _compactClockAnchors;
+    private ClockTextAnchors _expandedClockAnchors;
     private bool _isFullscreenSuppressed;
     private bool _disposed;
 
@@ -395,23 +401,55 @@ public partial class MainWindow : Window, IDisposable
         // Arrange the target view once before the first transition frame. The
         // following frames only update render transforms and opacity.
         ContentRoot.UpdateLayout();
+        var compactAnchors = CompactContent.CaptureTransitionAnchors(ContentRoot);
+        var expandedAnchors = ExpandedContent.CaptureTransitionAnchors(ContentRoot);
+        _sharedElementOffsets = SharedElementOffsets.Between(compactAnchors, expandedAnchors);
+        _clockAnchorsAvailable = false;
+        if (_displayedItemIsClock)
+        {
+            var compactClockAnchors = CompactContent.CaptureClockTextAnchors(ContentRoot);
+            var expandedClockAnchors = ExpandedContent.CaptureClockTextAnchors(ContentRoot);
+            if (AreClockAnchorsUsable(compactClockAnchors) &&
+                AreClockAnchorsUsable(expandedClockAnchors))
+            {
+                _compactClockAnchors = compactClockAnchors;
+                _expandedClockAnchors = expandedClockAnchors;
+                _clockAnchorsAvailable = true;
+            }
+        }
+
         _contentMorphPrepared = true;
     }
 
     private void ApplyContentMorphFrame(double expansionProgress)
     {
         var choreography = TransitionChoreography.Evaluate(expansionProgress);
-        var compactAnchors = CompactContent.CaptureTransitionAnchors(ContentRoot);
-        var expandedAnchors = ExpandedContent.CaptureTransitionAnchors(ContentRoot);
-        var offsets = SharedElementOffsets.Between(compactAnchors, expandedAnchors);
+        var clockOverlayOwnsText = _displayedItemIsClock && _clockAnchorsAvailable;
 
-        CompactContent.ApplyTransition(choreography, offsets);
-        ExpandedContent.ApplyTransition(choreography, offsets);
+        CompactContent.ApplyTransition(
+            choreography,
+            _sharedElementOffsets,
+            clockOverlayOwnsText);
+        ExpandedContent.ApplyTransition(
+            choreography,
+            _sharedElementOffsets,
+            clockOverlayOwnsText);
+
+        if (clockOverlayOwnsText)
+        {
+            ApplyClockOverlayFrame(expansionProgress);
+        }
+        else
+        {
+            ResetClockOverlayOwnership();
+        }
     }
 
     private void SetContentStateImmediate(NotchState visualState)
     {
         _contentMorphPrepared = false;
+        _clockAnchorsAvailable = false;
+        ResetClockOverlayOwnership();
         CompactHost.Opacity = 1;
         ExpandedHost.Opacity = 1;
         CompactContent.ResetTransitionVisuals();
@@ -483,12 +521,20 @@ public partial class MainWindow : Window, IDisposable
 
         CompactContent.ShowItem(item, _stateMachine.IsPinned);
         ExpandedContent.ShowItem(item, _stateMachine.IsPinned);
+        _displayedItemIsClock = string.Equals(
+            item.Id,
+            StatusStore.ClockId,
+            StringComparison.Ordinal);
+        ClockTitleOverlay.Text = item.Title;
+        ClockTimeOverlay.Text = item.Text;
+        ClockDateOverlay.Text = item.SecondaryText?.Trim() ?? string.Empty;
         if (_windowController.IsTransitionActive)
         {
             // The new text can change both header anchors. Re-arrange both
             // views before the next shared-element frame instead of rendering
             // one frame against stale positions.
             _contentMorphPrepared = false;
+            _clockAnchorsAvailable = false;
         }
 
         var compactWidth = CompactContent.GetPreferredWidth();
@@ -496,6 +542,60 @@ public partial class MainWindow : Window, IDisposable
         var expandedHeight = ExpandedContent.GetPreferredHeight(expandedWidth);
         _windowController.SetPreferredSize(compactWidth, expandedWidth, expandedHeight, applyWindowSize);
     }
+
+    private void ApplyClockOverlayFrame(double expansionProgress)
+    {
+        var title = TransitionChoreography.EvaluateSharedText(
+            expansionProgress,
+            _compactClockAnchors.Title,
+            _expandedClockAnchors.Title);
+        var time = TransitionChoreography.EvaluateSharedText(
+            expansionProgress,
+            _compactClockAnchors.Time,
+            _expandedClockAnchors.Time);
+        var date = TransitionChoreography.EvaluateClockDate(
+            expansionProgress,
+            _compactClockAnchors.Date,
+            _expandedClockAnchors.Date);
+
+        ClockTransitionOverlay.Visibility = Visibility.Visible;
+        ApplyClockTextPlacement(ClockTitleOverlay, ClockTitleOverlayScale, title);
+        ApplyClockTextPlacement(ClockTimeOverlay, ClockTimeOverlayScale, time);
+        ApplyClockTextPlacement(ClockDateOverlay, ClockDateOverlayScale, date);
+    }
+
+    private static void ApplyClockTextPlacement(
+        TextBlock element,
+        ScaleTransform scale,
+        ClockTextPlacement placement)
+    {
+        Canvas.SetLeft(element, placement.TopLeft.X);
+        Canvas.SetTop(element, placement.TopLeft.Y);
+        scale.ScaleX = placement.Scale;
+        scale.ScaleY = placement.Scale;
+        element.Opacity = placement.Opacity;
+    }
+
+    private void ResetClockOverlayOwnership()
+    {
+        ClockTransitionOverlay.Visibility = Visibility.Collapsed;
+        ClockTitleOverlay.Opacity = 1;
+        ClockTimeOverlay.Opacity = 1;
+        ClockDateOverlay.Opacity = 1;
+    }
+
+    private static bool AreClockAnchorsUsable(ClockTextAnchors anchors) =>
+        IsClockAnchorUsable(anchors.Title) &&
+        IsClockAnchorUsable(anchors.Time) &&
+        IsClockAnchorUsable(anchors.Date);
+
+    private static bool IsClockAnchorUsable(ClockTextAnchor anchor) =>
+        double.IsFinite(anchor.LeadingBaseline.X) &&
+        double.IsFinite(anchor.LeadingBaseline.Y) &&
+        double.IsFinite(anchor.FontSize) &&
+        anchor.FontSize > 0 &&
+        double.IsFinite(anchor.BaselineFromTop) &&
+        anchor.BaselineFromTop > 0;
 
     private void TryRunPendingItemTransition()
     {
@@ -559,6 +659,9 @@ public partial class MainWindow : Window, IDisposable
         }
 
         _disposed = true;
+        _contentMorphPrepared = false;
+        _clockAnchorsAvailable = false;
+        ResetClockOverlayOwnership();
         _statusStore.Changed -= StatusStore_OnChanged;
         _stateMachine.StateChanged -= StateMachine_OnStateChanged;
         _monitorPlacementService.Changed -= MonitorPlacementService_OnChanged;

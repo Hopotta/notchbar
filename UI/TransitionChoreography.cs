@@ -48,7 +48,13 @@ public static class TransitionChoreography
         ClockTextAnchor expanded)
     {
         var progress = SmoothStep(Math.Clamp(expansionProgress, 0d, 1d));
-        return PlaceText(compact, expanded, progress, progress, verticalDetachment: 0);
+        return PlaceText(
+            compact,
+            expanded,
+            progress,
+            progress,
+            progress,
+            verticalDetachment: 0);
     }
 
     public static ClockTextPlacement EvaluateClockDate(
@@ -68,6 +74,7 @@ public static class TransitionChoreography
             expanded,
             horizontalProgress,
             verticalProgress,
+            SmoothStep(progress),
             detachment);
     }
 
@@ -76,16 +83,13 @@ public static class TransitionChoreography
         ClockTextAnchor expanded,
         double horizontalProgress,
         double verticalProgress,
+        double scaleProgress,
         double verticalDetachment)
     {
-        var scaleProgress = SmoothStep(Math.Clamp(
-            (horizontalProgress + verticalProgress) / 2d,
-            0d,
-            1d));
         var scale = Lerp(
             1d,
             expanded.FontSize / Math.Max(double.Epsilon, compact.FontSize),
-            scaleProgress);
+            Math.Clamp(scaleProgress, 0d, 1d));
         var leadingBaseline = new Point(
             Lerp(compact.LeadingBaseline.X, expanded.LeadingBaseline.X, horizontalProgress),
             Lerp(compact.LeadingBaseline.Y, expanded.LeadingBaseline.Y, verticalProgress) +

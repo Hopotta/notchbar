@@ -102,6 +102,22 @@ public sealed class TransitionChoreographyTests
             TransitionChoreography.EvaluateSharedText(1.5, compact, expanded));
     }
 
+    [Theory]
+    [InlineData(0.01)]
+    [InlineData(0.25)]
+    [InlineData(0.5)]
+    [InlineData(0.75)]
+    [InlineData(0.99)]
+    public void ClockText_RemainsFullyVisibleForSingleOwnerMotion(double progress)
+    {
+        var compact = new ClockTextAnchor(new Point(210, 21), 11, 8);
+        var expanded = new ClockTextAnchor(new Point(28, 38), 13.5, 9.818181818181818);
+
+        var placement = TransitionChoreography.EvaluateSharedText(progress, compact, expanded);
+
+        Assert.Equal(1, placement.Opacity);
+    }
+
     [Fact]
     public void ClockDate_DetachesVerticallyBeforeTravellingHorizontally()
     {
