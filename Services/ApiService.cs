@@ -12,6 +12,7 @@ public sealed class ApiService
 {
     private readonly StatusStore _store;
     private readonly SettingsService _settings;
+    private readonly SemaphoreSlim _lifecycleGate = new(1, 1);
     private WebApplication? _app;
 
     public ApiService(StatusStore store, SettingsService settings)
@@ -21,6 +22,19 @@ public sealed class ApiService
     }
 
     public async Task StartAsync(CancellationToken cancellationToken = default)
+    {
+        await _lifecycleGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            await StartCoreAsync(cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            _lifecycleGate.Release();
+        }
+    }
+
+    private async Task StartCoreAsync(CancellationToken cancellationToken)
     {
         if (_app is not null)
         {
@@ -142,14 +156,34 @@ public sealed class ApiService
 
     public async Task StopAsync(CancellationToken cancellationToken = default)
     {
-        if (_app is null)
+        await _lifecycleGate.WaitAsync().ConfigureAwait(false);
+        try
         {
-            return;
-        }
+            if (_app is null)
+            {
+                return;
+            }
 
-        var app = _app;
-        _app = null;
-        await app.StopAsync(cancellationToken).ConfigureAwait(false);
-        await app.DisposeAsync().ConfigureAwait(false);
+            var app = _app;
+            try
+            {
+                await app.StopAsync(cancellationToken).ConfigureAwait(false);
+            }
+            finally
+            {
+                try
+                {
+                    await app.DisposeAsync().ConfigureAwait(false);
+                }
+                finally
+                {
+                    _app = null;
+                }
+            }
+        }
+        finally
+        {
+            _lifecycleGate.Release();
+        }
     }
 }

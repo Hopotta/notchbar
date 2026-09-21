@@ -7,6 +7,8 @@ namespace NotchBar;
 
 public partial class App : System.Windows.Application
 {
+    private static readonly TimeSpan ApiShutdownTimeout = TimeSpan.FromSeconds(3);
+
     private readonly CancellationTokenSource _lifetimeCts = new();
     private SingleInstanceService? _singleInstanceService;
     private TrayService? _trayService;
@@ -211,22 +213,26 @@ public partial class App : System.Windows.Application
             _mainWindow.Dispose();
         }
 
-        try
+        using var apiShutdownCts = new CancellationTokenSource();
+        if (!_restartRequested)
         {
-            _apiStartTask?.GetAwaiter().GetResult();
-        }
-        catch (OperationCanceledException)
-        {
-            // Expected when shutdown interrupts API startup.
-        }
-        catch (Exception exception)
-        {
-            System.Diagnostics.Debug.WriteLine($"NotchBar API startup ended during shutdown: {exception.Message}");
+            apiShutdownCts.CancelAfter(ApiShutdownTimeout);
         }
 
         try
         {
-            _apiService?.StopAsync(CancellationToken.None).GetAwaiter().GetResult();
+            if (_apiService is not null)
+            {
+                _apiService.StopAsync(apiShutdownCts.Token)
+                    .WaitAsync(apiShutdownCts.Token)
+                    .GetAwaiter()
+                    .GetResult();
+            }
+        }
+        catch (OperationCanceledException) when (apiShutdownCts.IsCancellationRequested)
+        {
+            System.Diagnostics.Debug.WriteLine(
+                $"NotchBar API shutdown exceeded the {ApiShutdownTimeout.TotalSeconds:0}-second timeout");
         }
         catch (Exception exception)
         {
