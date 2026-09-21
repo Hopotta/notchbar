@@ -1,6 +1,7 @@
 using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Interop;
+using System.Windows.Threading;
 
 namespace NotchBar.Services;
 
@@ -22,6 +23,11 @@ public sealed class WindowBlurService : IDisposable
     private readonly Window _window;
     private IntPtr _hwnd;
     private IntPtr _blurRegion;
+    private DispatcherOperation? _pendingRegionUpdate;
+    private int _appliedClientWidth = -1;
+    private int _appliedClientHeight = -1;
+    private uint _appliedDpi;
+    private bool _isApplied;
     private bool _disposed;
 
     public WindowBlurService(Window window)
@@ -36,6 +42,12 @@ public sealed class WindowBlurService : IDisposable
             return false;
         }
 
+        if (_isApplied)
+        {
+            QueueBackdropRegionUpdate();
+            return true;
+        }
+
         try
         {
             _hwnd = new WindowInteropHelper(_window).Handle;
@@ -47,8 +59,12 @@ public sealed class WindowBlurService : IDisposable
             SetWindowAttribute(DwmNcRenderingPolicy, DwmNcRenderingDisabled);
             SetWindowAttribute(DwmWindowCornerPreference, DwmCornerDoNotRound);
 
-            _window.SizeChanged += Window_OnSizeChanged;
+            // Apply the initial region synchronously so the first presented
+            // frame already has the correct glass silhouette.
             UpdateBackdropRegion();
+            _window.SizeChanged += Window_OnSizeChanged;
+            _window.DpiChanged += Window_OnDpiChanged;
+            _isApplied = true;
             return true;
         }
         catch (DllNotFoundException)
@@ -63,7 +79,50 @@ public sealed class WindowBlurService : IDisposable
 
     private void Window_OnSizeChanged(object sender, SizeChangedEventArgs e)
     {
-        UpdateBackdropRegion();
+        QueueBackdropRegionUpdate();
+    }
+
+    private void Window_OnDpiChanged(object sender, System.Windows.DpiChangedEventArgs e)
+    {
+        QueueBackdropRegionUpdate();
+    }
+
+    private void QueueBackdropRegionUpdate()
+    {
+        if (_disposed || _hwnd == IntPtr.Zero || _pendingRegionUpdate is not null)
+        {
+            return;
+        }
+
+        // Window size animation can produce several SizeChanged notifications
+        // in one dispatcher pass. Rebuild the native region only once, just
+        // before WPF renders the resulting size.
+        _pendingRegionUpdate = _window.Dispatcher.BeginInvoke(
+            DispatcherPriority.Render,
+            new Action(ProcessPendingBackdropRegionUpdate));
+    }
+
+    private void ProcessPendingBackdropRegionUpdate()
+    {
+        _pendingRegionUpdate = null;
+        if (_disposed)
+        {
+            return;
+        }
+
+        try
+        {
+            UpdateBackdropRegion();
+        }
+        catch (DllNotFoundException)
+        {
+            // DWM is optional. Keep the WPF glass fallback rather than
+            // allowing a late resize callback to tear down the UI thread.
+        }
+        catch (EntryPointNotFoundException)
+        {
+            // Older Windows builds may not expose every API used here.
+        }
     }
 
     private void UpdateBackdropRegion()
@@ -81,32 +140,55 @@ public sealed class WindowBlurService : IDisposable
         var width = Math.Max(1, clientRect.Right - clientRect.Left);
         var height = Math.Max(1, clientRect.Bottom - clientRect.Top);
         var dpi = GetDpi(_hwnd);
-        var radius = Math.Clamp((int)Math.Round(20d * dpi / 96d), 1, Math.Min(width, height) / 2);
-
-        DisableBlurRegion();
-
-        var blurRegion = CreateIslandRegion(width, height, radius);
-        if (blurRegion == IntPtr.Zero)
+        if (width == _appliedClientWidth && height == _appliedClientHeight && dpi == _appliedDpi)
         {
             return;
         }
 
-        var blurBehind = new DwmBlurBehind
-        {
-            Flags = DwmBbEnable | DwmBbBlurRegion,
-            Enable = true,
-            BlurRegion = blurRegion,
-            TransitionOnMaximized = false
-        };
+        var radius = Math.Clamp((int)Math.Round(20d * dpi / 96d), 1, Math.Min(width, height) / 2);
 
-        var result = DwmEnableBlurBehindWindow(_hwnd, ref blurBehind);
-        if (result == 0)
+        var replacementRegion = CreateIslandRegion(width, height, radius);
+        if (replacementRegion == IntPtr.Zero)
         {
-            _blurRegion = blurRegion;
+            return;
         }
-        else
+
+        try
         {
-            DeleteObject(blurRegion);
+            var blurBehind = new DwmBlurBehind
+            {
+                Flags = DwmBbEnable | DwmBbBlurRegion,
+                Enable = true,
+                BlurRegion = replacementRegion,
+                TransitionOnMaximized = false
+            };
+
+            if (DwmEnableBlurBehindWindow(_hwnd, ref blurBehind) != 0)
+            {
+                return;
+            }
+
+            // DWM accepted the replacement before the previous HRGN is
+            // released. This avoids a one-frame unblurred rectangle while a
+            // transparent window is being resized.
+            var previousRegion = _blurRegion;
+            _blurRegion = replacementRegion;
+            replacementRegion = IntPtr.Zero;
+            _appliedClientWidth = width;
+            _appliedClientHeight = height;
+            _appliedDpi = dpi;
+
+            if (previousRegion != IntPtr.Zero)
+            {
+                DeleteObject(previousRegion);
+            }
+        }
+        finally
+        {
+            if (replacementRegion != IntPtr.Zero)
+            {
+                DeleteObject(replacementRegion);
+            }
         }
     }
 
@@ -138,12 +220,18 @@ public sealed class WindowBlurService : IDisposable
 
     private void DisableBlurRegion()
     {
-        if (_hwnd == IntPtr.Zero)
+        var blurRegion = _blurRegion;
+        _blurRegion = IntPtr.Zero;
+        _appliedClientWidth = -1;
+        _appliedClientHeight = -1;
+        _appliedDpi = 0;
+
+        if (blurRegion == IntPtr.Zero)
         {
             return;
         }
 
-        if (_blurRegion != IntPtr.Zero)
+        try
         {
             var blurBehind = new DwmBlurBehind
             {
@@ -152,9 +240,15 @@ public sealed class WindowBlurService : IDisposable
                 BlurRegion = IntPtr.Zero,
                 TransitionOnMaximized = false
             };
-            _ = DwmEnableBlurBehindWindow(_hwnd, ref blurBehind);
-            DeleteObject(_blurRegion);
-            _blurRegion = IntPtr.Zero;
+
+            if (_hwnd != IntPtr.Zero)
+            {
+                _ = DwmEnableBlurBehindWindow(_hwnd, ref blurBehind);
+            }
+        }
+        finally
+        {
+            DeleteObject(blurRegion);
         }
     }
 
@@ -179,7 +273,11 @@ public sealed class WindowBlurService : IDisposable
         }
 
         _disposed = true;
+        _pendingRegionUpdate?.Abort();
+        _pendingRegionUpdate = null;
         _window.SizeChanged -= Window_OnSizeChanged;
+        _window.DpiChanged -= Window_OnDpiChanged;
+        _isApplied = false;
         DisableBlurRegion();
         GC.SuppressFinalize(this);
     }
