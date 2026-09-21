@@ -70,4 +70,83 @@ public sealed class TransitionChoreographyTests
 
         Assert.Equal(firstPass, reversed);
     }
+
+    [Fact]
+    public void ClockText_UsesLeadingBaselineEndpointsAndTypographyScale()
+    {
+        var compact = new ClockTextAnchor(new Point(250, 24), 10, 8);
+        var expanded = new ClockTextAnchor(new Point(32, 34), 15, 12);
+
+        var atCompact = TransitionChoreography.EvaluateSharedText(0, compact, expanded);
+        var atExpanded = TransitionChoreography.EvaluateSharedText(1, compact, expanded);
+
+        Assert.Equal(new Point(250, 16), atCompact.TopLeft);
+        Assert.Equal(1, atCompact.Scale);
+        Assert.Equal(new Point(32, 22), atExpanded.TopLeft);
+        Assert.Equal(1.5, atExpanded.Scale);
+        Assert.Equal(1, atCompact.Opacity);
+        Assert.Equal(1, atExpanded.Opacity);
+    }
+
+    [Fact]
+    public void ClockText_ClampsProgressOutsideTransitionRange()
+    {
+        var compact = new ClockTextAnchor(new Point(210, 21), 11, 8);
+        var expanded = new ClockTextAnchor(new Point(28, 38), 13.5, 9.818181818181818);
+
+        Assert.Equal(
+            TransitionChoreography.EvaluateSharedText(0, compact, expanded),
+            TransitionChoreography.EvaluateSharedText(-0.5, compact, expanded));
+        Assert.Equal(
+            TransitionChoreography.EvaluateSharedText(1, compact, expanded),
+            TransitionChoreography.EvaluateSharedText(1.5, compact, expanded));
+    }
+
+    [Fact]
+    public void ClockDate_DetachesVerticallyBeforeTravellingHorizontally()
+    {
+        var compact = new ClockTextAnchor(new Point(286, 23), 11, 8);
+        var expanded = new ClockTextAnchor(new Point(28, 78), 13.5, 9.818181818181818);
+
+        var early = TransitionChoreography.EvaluateClockDate(0.14, compact, expanded);
+        var compactPlacement = TransitionChoreography.EvaluateClockDate(0, compact, expanded);
+        var horizontalTravel = Math.Abs(early.LeadingBaseline.X - compactPlacement.LeadingBaseline.X);
+        var verticalTravel = Math.Abs(early.LeadingBaseline.Y - compactPlacement.LeadingBaseline.Y);
+
+        Assert.True(verticalTravel > horizontalTravel * 2);
+        Assert.Equal(1, early.Opacity);
+    }
+
+    [Fact]
+    public void ClockDate_FollowsEndpointExactBoundedArc()
+    {
+        var compact = new ClockTextAnchor(new Point(286, 23), 11, 8);
+        var expanded = new ClockTextAnchor(new Point(28, 78), 13.5, 9.818181818181818);
+
+        var atCompact = TransitionChoreography.EvaluateClockDate(0, compact, expanded);
+        var midpoint = TransitionChoreography.EvaluateClockDate(0.5, compact, expanded);
+        var atExpanded = TransitionChoreography.EvaluateClockDate(1, compact, expanded);
+        var linearMidpointY = (compact.LeadingBaseline.Y + expanded.LeadingBaseline.Y) / 2;
+
+        Assert.Equal(compact.LeadingBaseline, atCompact.LeadingBaseline);
+        Assert.Equal(expanded.LeadingBaseline, atExpanded.LeadingBaseline);
+        Assert.True(midpoint.LeadingBaseline.Y > linearMidpointY);
+        Assert.InRange(
+            midpoint.LeadingBaseline.Y,
+            Math.Min(compact.LeadingBaseline.Y, expanded.LeadingBaseline.Y),
+            Math.Max(compact.LeadingBaseline.Y, expanded.LeadingBaseline.Y) + 8);
+    }
+
+    [Fact]
+    public void ClockDate_EvaluationIsDeterministicAcrossReversalSamples()
+    {
+        var compact = new ClockTextAnchor(new Point(286, 23), 11, 8);
+        var expanded = new ClockTextAnchor(new Point(28, 78), 13.5, 9.818181818181818);
+
+        var first = TransitionChoreography.EvaluateClockDate(0.37, compact, expanded);
+        _ = TransitionChoreography.EvaluateClockDate(0.83, compact, expanded);
+        var reversed = TransitionChoreography.EvaluateClockDate(0.37, compact, expanded);
+
+        Assert.Equal(first, reversed);
+    }
 }
