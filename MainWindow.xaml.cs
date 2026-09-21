@@ -11,6 +11,8 @@ namespace NotchBar;
 public partial class MainWindow : Window, IDisposable
 {
     private static readonly Duration ItemTransitionDuration = new(TimeSpan.FromMilliseconds(160));
+    private const int ApiErrorNotificationPriority = 900;
+    private const int ApiErrorNotificationTtlSeconds = 10;
 
     private readonly StatusStore _statusStore;
     private readonly SettingsService _settings;
@@ -71,6 +73,33 @@ public partial class MainWindow : Window, IDisposable
     public void ShowApiError(string message)
     {
         Debug.WriteLine($"NotchBar API failed to start: {message}");
+
+        if (_disposed)
+        {
+            return;
+        }
+
+        var detail = string.IsNullOrWhiteSpace(message) ? null : message.Trim();
+        if (detail?.Length > StatusItemValidation.MaxDetailLength)
+        {
+            detail = detail[..StatusItemValidation.MaxDetailLength];
+        }
+
+        try
+        {
+            _statusStore.AddNotification(new NotificationRequest
+            {
+                Title = "Local API unavailable",
+                Text = "NotchBar is running without API updates",
+                Detail = detail,
+                Priority = ApiErrorNotificationPriority,
+                TtlSeconds = ApiErrorNotificationTtlSeconds
+            });
+        }
+        catch (StatusStoreCapacityException exception)
+        {
+            Debug.WriteLine($"NotchBar could not show the API error notification: {exception.Message}");
+        }
     }
 
     public void ShowFromExternal()
