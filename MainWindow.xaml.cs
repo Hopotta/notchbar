@@ -19,7 +19,6 @@ public partial class MainWindow : Window, IDisposable
     private readonly NotchStateMachine _stateMachine = new();
     private readonly TranslateTransform _compactContentTranslate = new();
     private readonly TranslateTransform _expandedContentTranslate = new();
-    private readonly SpringMotion _contentMotion = new(response: 0.34);
     private readonly MonitorPlacementService _monitorPlacementService;
     private readonly WindowController _windowController;
     private readonly WindowBlurService _windowBlurService;
@@ -27,11 +26,7 @@ public partial class MainWindow : Window, IDisposable
     private readonly HotkeyService _hotkeyService = new();
     private readonly FullscreenSuppressionService? _fullscreenSuppressionService;
     private string? _displayedItemId;
-    private NotchState _renderedVisualState = NotchState.Hidden;
-    private long _layoutTransitionVersion;
     private bool _pendingItemTransition;
-    private bool _contentMotionActive;
-    private DateTime _contentMotionLastFrame;
     private bool _isFullscreenSuppressed;
     private bool _disposed;
 
@@ -55,6 +50,7 @@ public partial class MainWindow : Window, IDisposable
         }
 
         _monitorPlacementService.Changed += MonitorPlacementService_OnChanged;
+        _windowController.MotionFrameChanged += WindowController_OnMotionFrameChanged;
         _stateMachine.StateChanged += StateMachine_OnStateChanged;
         _statusStore.Changed += StatusStore_OnChanged;
         CompactContent.PinClicked += Pin_OnClicked;
@@ -317,111 +313,70 @@ public partial class MainWindow : Window, IDisposable
     {
         if (_isFullscreenSuppressed)
         {
-            StopContentMotion();
             SetContentStateImmediate(NotchState.Hidden);
-            _renderedVisualState = NotchState.Hidden;
-            return;
-        }
-
-        if (visualState == NotchState.Hidden)
-        {
-            // The window itself moves out of the screen. Keep the compact
-            // surface mounted inside it so the edge transition does not turn
-            // into a separate fade-out animation.
-            StopContentMotion();
-            SetContentStateImmediate(NotchState.Compact);
-            _renderedVisualState = NotchState.Hidden;
-            return;
-        }
-
-        if (_renderedVisualState == NotchState.Hidden)
-        {
-            // The island is physically sliding into view; showing the content
-            // immediately keeps it attached to that movement instead of
-            // making it pop in after the window has arrived.
-            StopContentMotion();
-            SetContentStateImmediate(visualState);
-            _renderedVisualState = visualState;
-            _pendingItemTransition = false;
-            return;
-        }
-
-        if (_renderedVisualState == visualState && !_contentMotionActive)
-        {
-            EnsureContentHostVisible(visualState);
             return;
         }
 
         if (!SystemParameters.ClientAreaAnimation)
         {
-            StopContentMotion();
-            SetContentStateImmediate(visualState);
-            _renderedVisualState = visualState;
+            SetContentStateImmediate(visualState == NotchState.Hidden
+                ? NotchState.Compact
+                : visualState);
             return;
         }
 
-        StartContentMorph(visualState);
-        _renderedVisualState = visualState;
-        _pendingItemTransition = false;
-    }
-
-    private void StartContentMorph(NotchState targetState)
-    {
-        if (!_contentMotionActive)
+        var frame = _windowController.CurrentFrame;
+        if (frame.ExpansionProgress > 0.001 ||
+            visualState is NotchState.Expanded or NotchState.Pinned)
         {
-            var currentProgress = _renderedVisualState == NotchState.Expanded ? 1d : 0d;
-            _contentMotion.SetImmediate(currentProgress);
-            CompactHost.Visibility = Visibility.Visible;
-            ExpandedHost.Visibility = Visibility.Visible;
-            ExpandedContent.ResetLayoutTransition();
+            PrepareContentMorph();
+            ApplyContentMorphFrame(frame.ExpansionProgress);
+            return;
         }
 
-        _contentMotion.SetTarget(targetState == NotchState.Expanded ? 1d : 0d);
-        _contentMotionActive = true;
-        _contentMotionLastFrame = DateTime.UtcNow;
-        CompositionTarget.Rendering -= CompositionTarget_OnRendering;
-        CompositionTarget.Rendering += CompositionTarget_OnRendering;
-        ApplyContentMorphFrame();
+        SetContentStateImmediate(NotchState.Compact);
     }
 
-    private void CompositionTarget_OnRendering(object? sender, EventArgs e)
+    private void WindowController_OnMotionFrameChanged(
+        object? sender,
+        WindowMotionFrameChangedEventArgs e)
     {
-        if (_disposed || !_contentMotionActive)
+        if (_disposed || _isFullscreenSuppressed)
         {
             return;
         }
 
-        var now = DateTime.UtcNow;
-        var elapsed = now - _contentMotionLastFrame;
-        _contentMotionLastFrame = now;
-        _contentMotion.Step(elapsed);
-        ApplyContentMorphFrame();
-
-        if (!_contentMotion.IsSettled)
+        var frame = e.Frame;
+        if (frame.ExpansionProgress > 0.001 ||
+            frame.TargetState is NotchState.Expanded or NotchState.Pinned)
         {
-            return;
+            PrepareContentMorph();
+            ApplyContentMorphFrame(frame.ExpansionProgress);
+        }
+        else
+        {
+            SetContentStateImmediate(NotchState.Compact);
         }
 
-        _contentMotionActive = false;
-        CompositionTarget.Rendering -= CompositionTarget_OnRendering;
-        var expanded = _contentMotion.Target > 0.5;
-        var settledHost = expanded ? ExpandedHost : CompactHost;
-        var dismissedHost = expanded ? CompactHost : ExpandedHost;
-        var settledTranslate = expanded ? ExpandedHostTranslate : CompactHostTranslate;
-        var settledScale = expanded ? ExpandedHostScale : CompactHostScale;
-        var dismissedTranslate = expanded ? CompactHostTranslate : ExpandedHostTranslate;
-        var dismissedScale = expanded ? CompactHostScale : ExpandedHostScale;
-
-        dismissedHost.Visibility = Visibility.Collapsed;
-        ResetHost(dismissedHost, dismissedTranslate, dismissedScale);
-        settledHost.Visibility = Visibility.Visible;
-        ResetHost(settledHost, settledTranslate, settledScale);
-        ExpandedContent.ResetLayoutTransition();
+        if (!e.IsTransitionActive && frame.IsSettled)
+        {
+            var settledState = frame.TargetState is NotchState.Expanded or NotchState.Pinned
+                ? NotchState.Expanded
+                : NotchState.Compact;
+            SetContentStateImmediate(settledState);
+            TryRunPendingItemTransition();
+        }
     }
 
-    private void ApplyContentMorphFrame()
+    private void PrepareContentMorph()
     {
-        var progress = Math.Clamp(_contentMotion.Value, 0d, 1d);
+        CompactHost.Visibility = Visibility.Visible;
+        ExpandedHost.Visibility = Visibility.Visible;
+    }
+
+    private void ApplyContentMorphFrame(double expansionProgress)
+    {
+        var progress = Math.Clamp(expansionProgress, 0d, 1d);
         var smoothProgress = progress * progress * (3d - (2d * progress));
 
         CompactHost.Visibility = Visibility.Visible;
@@ -436,33 +391,19 @@ public partial class MainWindow : Window, IDisposable
         ExpandedHostScale.ScaleY = 0.972d + (0.028d * smoothProgress);
     }
 
-    private void StopContentMotion()
-    {
-        _contentMotionActive = false;
-        CompositionTarget.Rendering -= CompositionTarget_OnRendering;
-    }
-
     private void SetContentStateImmediate(NotchState visualState)
     {
-        _layoutTransitionVersion++;
         ResetHost(CompactHost, CompactHostTranslate, CompactHostScale);
         ResetHost(ExpandedHost, ExpandedHostTranslate, ExpandedHostScale);
         ExpandedContent.ResetLayoutTransition();
 
-        CompactHost.Visibility = visualState == NotchState.Compact ? Visibility.Visible : Visibility.Collapsed;
-        ExpandedHost.Visibility = visualState == NotchState.Expanded ? Visibility.Visible : Visibility.Collapsed;
-    }
-
-    private void EnsureContentHostVisible(NotchState visualState)
-    {
-        if (visualState == NotchState.Compact && CompactHost.Visibility != Visibility.Visible)
-        {
-            SetContentStateImmediate(visualState);
-        }
-        else if (visualState == NotchState.Expanded && ExpandedHost.Visibility != Visibility.Visible)
-        {
-            SetContentStateImmediate(visualState);
-        }
+        var hideAll = visualState == NotchState.Hidden && _isFullscreenSuppressed;
+        CompactHost.Visibility = !hideAll && visualState != NotchState.Expanded
+            ? Visibility.Visible
+            : Visibility.Collapsed;
+        ExpandedHost.Visibility = !hideAll && visualState == NotchState.Expanded
+            ? Visibility.Visible
+            : Visibility.Collapsed;
     }
 
     private static void ResetHost(
@@ -546,7 +487,10 @@ public partial class MainWindow : Window, IDisposable
 
     private void TryRunPendingItemTransition()
     {
-        if (!_pendingItemTransition || _isFullscreenSuppressed || _stateMachine.Current == NotchState.Hidden)
+        if (!_pendingItemTransition ||
+            _isFullscreenSuppressed ||
+            _stateMachine.Current == NotchState.Hidden ||
+            _windowController.IsTransitionActive)
         {
             return;
         }
@@ -606,6 +550,7 @@ public partial class MainWindow : Window, IDisposable
         _statusStore.Changed -= StatusStore_OnChanged;
         _stateMachine.StateChanged -= StateMachine_OnStateChanged;
         _monitorPlacementService.Changed -= MonitorPlacementService_OnChanged;
+        _windowController.MotionFrameChanged -= WindowController_OnMotionFrameChanged;
         CompactContent.PinClicked -= Pin_OnClicked;
         ExpandedContent.PinClicked -= Pin_OnClicked;
         ExpandedContent.CollapseRequested -= ExpandedContent_OnCollapseRequested;
@@ -621,6 +566,5 @@ public partial class MainWindow : Window, IDisposable
             _fullscreenSuppressionService.Changed -= FullscreenSuppressionService_OnChanged;
             _fullscreenSuppressionService.Dispose();
         }
-        CompositionTarget.Rendering -= CompositionTarget_OnRendering;
     }
 }

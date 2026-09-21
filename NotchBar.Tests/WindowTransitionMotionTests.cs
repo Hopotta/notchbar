@@ -1,0 +1,163 @@
+using NotchBar.Core;
+using NotchBar.Services;
+using Xunit;
+
+namespace NotchBar.Tests;
+
+public sealed class WindowTransitionMotionTests
+{
+    [Fact]
+    public void ExpandedToHidden_RetargetsWithoutGeometryJumpAndSettlesHidden()
+    {
+        var motion = CreateVisibleCompactMotion();
+        motion.Retarget(NotchState.Expanded, animate: true);
+        Advance(motion, 12, TimeSpan.FromSeconds(1d / 60d));
+        var beforeHide = motion.Current;
+
+        motion.Retarget(NotchState.Hidden, animate: true);
+        var retargeted = motion.Current;
+
+        Assert.Equal(beforeHide.Width, retargeted.Width);
+        Assert.Equal(beforeHide.Height, retargeted.Height);
+        Assert.Equal(beforeHide.TopOffset, retargeted.TopOffset);
+        Assert.Equal(beforeHide.ExpansionProgress, retargeted.ExpansionProgress);
+
+        Settle(motion);
+        var settled = motion.Current;
+        Assert.Equal(NotchState.Hidden, settled.TargetState);
+        Assert.Equal(320, settled.Width, 6);
+        Assert.Equal(WindowController.CompactHeight, settled.Height, 6);
+        Assert.Equal(
+            -(WindowController.CompactHeight - WindowController.HiddenTriggerHeight),
+            settled.TopOffset,
+            6);
+        Assert.Equal(0, settled.ExpansionProgress, 6);
+    }
+
+    [Fact]
+    public void CompactExpandedCompact_ReversesFromLiveMotionState()
+    {
+        var motion = CreateVisibleCompactMotion();
+        motion.Retarget(NotchState.Expanded, animate: true);
+        Advance(motion, 8, TimeSpan.FromSeconds(1d / 120d));
+        var beforeReverse = motion.Current;
+
+        motion.Retarget(NotchState.Compact, animate: true);
+        var retargeted = motion.Current;
+
+        Assert.Equal(beforeReverse.Width, retargeted.Width);
+        Assert.Equal(beforeReverse.Height, retargeted.Height);
+        Assert.Equal(beforeReverse.ExpansionProgress, retargeted.ExpansionProgress);
+
+        Settle(motion);
+        AssertCompact(motion.Current);
+    }
+
+    [Fact]
+    public void ExpandedCompactExpanded_ReversesWithoutResettingToAnEndpoint()
+    {
+        var motion = CreateVisibleCompactMotion();
+        motion.Retarget(NotchState.Expanded, animate: false);
+        motion.Retarget(NotchState.Compact, animate: true);
+        Advance(motion, 10, TimeSpan.FromSeconds(1d / 90d));
+        var beforeReverse = motion.Current;
+
+        motion.Retarget(NotchState.Expanded, animate: true);
+
+        Assert.Equal(beforeReverse.Height, motion.Current.Height);
+        Assert.InRange(motion.Current.ExpansionProgress, 0.01, 0.99);
+        Settle(motion);
+        Assert.Equal(220, motion.Current.Height, 6);
+        Assert.Equal(1, motion.Current.ExpansionProgress, 6);
+    }
+
+    [Fact]
+    public void HiddenCompact_RetainsCompactGeometryAndOnlyMovesTopEdge()
+    {
+        var motion = new WindowTransitionMotion();
+        motion.SetPreferredSize(320, 500, 220, animate: false);
+        var hidden = motion.Current;
+
+        motion.Retarget(NotchState.Compact, animate: true);
+        Advance(motion, 4, TimeSpan.FromSeconds(1d / 60d));
+
+        Assert.Equal(hidden.Width, motion.Current.Width);
+        Assert.Equal(hidden.Height, motion.Current.Height);
+        Assert.True(motion.Current.TopOffset > hidden.TopOffset);
+        Assert.Equal(0, motion.Current.ExpansionProgress);
+    }
+
+    [Fact]
+    public void PreferredSizeChangeDuringExpansion_RetargetsWithoutJump()
+    {
+        var motion = CreateVisibleCompactMotion();
+        motion.Retarget(NotchState.Expanded, animate: true);
+        Advance(motion, 10, TimeSpan.FromSeconds(1d / 60d));
+        var beforeResize = motion.Current;
+
+        motion.SetPreferredSize(332, 540, 260, animate: true);
+
+        Assert.Equal(beforeResize.Width, motion.Current.Width);
+        Assert.Equal(beforeResize.Height, motion.Current.Height);
+        Settle(motion);
+        Assert.Equal(540, motion.Current.Width, 6);
+        Assert.Equal(260, motion.Current.Height, 6);
+    }
+
+    [Fact]
+    public void EqualElapsedTime_IsRefreshRateIndependent()
+    {
+        var sixtyHertz = CreateVisibleCompactMotion();
+        var oneFortyFourHertz = CreateVisibleCompactMotion();
+        sixtyHertz.Retarget(NotchState.Expanded, animate: true);
+        oneFortyFourHertz.Retarget(NotchState.Expanded, animate: true);
+
+        Advance(sixtyHertz, 30, TimeSpan.FromSeconds(1d / 60d));
+        Advance(oneFortyFourHertz, 72, TimeSpan.FromSeconds(1d / 144d));
+
+        Assert.Equal(sixtyHertz.Current.Width, oneFortyFourHertz.Current.Width, 3);
+        Assert.Equal(sixtyHertz.Current.Height, oneFortyFourHertz.Current.Height, 3);
+        Assert.Equal(
+            sixtyHertz.Current.ExpansionProgress,
+            oneFortyFourHertz.Current.ExpansionProgress,
+            3);
+    }
+
+    private static WindowTransitionMotion CreateVisibleCompactMotion()
+    {
+        var motion = new WindowTransitionMotion();
+        motion.SetPreferredSize(320, 500, 220, animate: false);
+        motion.Retarget(NotchState.Compact, animate: false);
+        return motion;
+    }
+
+    private static void AssertCompact(WindowMotionFrame frame)
+    {
+        Assert.Equal(NotchState.Compact, frame.TargetState);
+        Assert.Equal(320, frame.Width, 6);
+        Assert.Equal(WindowController.CompactHeight, frame.Height, 6);
+        Assert.Equal(0, frame.TopOffset, 6);
+        Assert.Equal(0, frame.ExpansionProgress, 6);
+    }
+
+    private static void Advance(
+        WindowTransitionMotion motion,
+        int frameCount,
+        TimeSpan elapsedPerFrame)
+    {
+        for (var frame = 0; frame < frameCount; frame++)
+        {
+            motion.Step(elapsedPerFrame);
+        }
+    }
+
+    private static void Settle(WindowTransitionMotion motion)
+    {
+        for (var frame = 0; frame < 600 && !motion.IsSettled; frame++)
+        {
+            motion.Step(TimeSpan.FromSeconds(1d / 60d));
+        }
+
+        Assert.True(motion.IsSettled);
+    }
+}
