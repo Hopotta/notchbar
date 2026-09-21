@@ -12,6 +12,7 @@ public sealed class HotkeyService : IDisposable
     private const uint ModControl = 0x0002;
     private const uint ModShift = 0x0004;
     private const uint ModWin = 0x0008;
+    private const uint ModNoRepeat = 0x4000;
     private const int HotkeyId = 0x4E42;
 
     private HwndSource? _source;
@@ -28,7 +29,7 @@ public sealed class HotkeyService : IDisposable
         _source = HwndSource.FromHwnd(_handle);
         _source?.AddHook(WndProc);
 
-        var nativeModifiers = ToNativeModifiers(modifiers);
+        var nativeModifiers = ToNativeModifiers(modifiers) | ModNoRepeat;
         var virtualKey = (uint)KeyInterop.VirtualKeyFromKey(key);
         _registered = RegisterHotKey(_handle, HotkeyId, nativeModifiers, virtualKey);
         if (!_registered)
