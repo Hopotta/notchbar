@@ -77,6 +77,78 @@ public sealed class SettingsServiceTests : IDisposable
     }
 
     [Fact]
+    public void TypeInvalidProperty_DefaultsWithoutDiscardingOtherValidValues()
+    {
+        Directory.CreateDirectory(_directory);
+        File.WriteAllText(SettingsPath(), """
+        {
+          "apiPort": "not-a-number",
+          "autoHideDelayMs": 1400,
+          "hotkey": "Shift+F8",
+          "startWithWindows": true,
+          "hideInFullscreen": false,
+          "monitorMode": "activeWindow"
+        }
+        """);
+
+        var settings = new SettingsService(SettingsPath());
+
+        Assert.Equal(SettingsService.DefaultApiPort, settings.ApiPort);
+        Assert.Equal(TimeSpan.FromMilliseconds(1400), settings.AutoHideDelay);
+        Assert.Equal(ModifierKeys.Shift, settings.HotkeyModifiers);
+        Assert.Equal(Key.F8, settings.HotkeyKey);
+        Assert.True(settings.StartWithWindows);
+        Assert.False(settings.HideInFullscreen);
+        Assert.Equal(MonitorPlacementMode.ActiveWindow, settings.MonitorMode);
+    }
+
+    [Fact]
+    public void MultipleTypeInvalidProperties_DefaultIndividually()
+    {
+        Directory.CreateDirectory(_directory);
+        File.WriteAllText(SettingsPath(), """
+        {
+          "apiPort": 41234,
+          "autoHideDelayMs": "fast",
+          "hotkey": false,
+          "startWithWindows": "true",
+          "hideInFullscreen": 1,
+          "monitorMode": {}
+        }
+        """);
+
+        var settings = new SettingsService(SettingsPath());
+
+        Assert.Equal(41234, settings.ApiPort);
+        Assert.Equal(TimeSpan.FromMilliseconds(SettingsService.DefaultAutoHideDelayMs), settings.AutoHideDelay);
+        Assert.Equal(ModifierKeys.Control | ModifierKeys.Alt, settings.HotkeyModifiers);
+        Assert.Equal(Key.Space, settings.HotkeyKey);
+        Assert.False(settings.StartWithWindows);
+        Assert.True(settings.HideInFullscreen);
+        Assert.Equal(MonitorPlacementMode.Primary, settings.MonitorMode);
+    }
+
+    [Theory]
+    [InlineData("null")]
+    [InlineData("[]")]
+    [InlineData("\"settings\"")]
+    public void NonObjectJsonRoot_FallsBackToDefaults(string json)
+    {
+        Directory.CreateDirectory(_directory);
+        File.WriteAllText(SettingsPath(), json);
+
+        var settings = new SettingsService(SettingsPath());
+
+        Assert.Equal(SettingsService.DefaultApiPort, settings.ApiPort);
+        Assert.Equal(TimeSpan.FromMilliseconds(SettingsService.DefaultAutoHideDelayMs), settings.AutoHideDelay);
+        Assert.Equal(ModifierKeys.Control | ModifierKeys.Alt, settings.HotkeyModifiers);
+        Assert.Equal(Key.Space, settings.HotkeyKey);
+        Assert.False(settings.StartWithWindows);
+        Assert.True(settings.HideInFullscreen);
+        Assert.Equal(MonitorPlacementMode.Primary, settings.MonitorMode);
+    }
+
+    [Fact]
     public void MalformedJson_FallsBackToDefaults()
     {
         Directory.CreateDirectory(_directory);

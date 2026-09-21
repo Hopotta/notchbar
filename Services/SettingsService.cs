@@ -169,7 +169,11 @@ public sealed class SettingsService
         {
             if (File.Exists(path))
             {
-                loaded = JsonSerializer.Deserialize<NotchBarSettings>(File.ReadAllText(path), JsonOptions);
+                using var document = JsonDocument.Parse(File.ReadAllText(path));
+                if (document.RootElement.ValueKind == JsonValueKind.Object)
+                {
+                    loaded = ReadSettings(document.RootElement);
+                }
             }
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or JsonException)
@@ -194,6 +198,64 @@ public sealed class SettingsService
             Hotkey = hotkey,
             MonitorMode = monitorMode
         };
+    }
+
+    private static NotchBarSettings ReadSettings(JsonElement root)
+    {
+        var defaults = new NotchBarSettings();
+
+        return defaults with
+        {
+            ApiPort = TryGetInt32(root, "apiPort", out var apiPort) ? apiPort : defaults.ApiPort,
+            AutoHideDelayMs = TryGetInt32(root, "autoHideDelayMs", out var autoHideDelayMs)
+                ? autoHideDelayMs
+                : defaults.AutoHideDelayMs,
+            Hotkey = TryGetString(root, "hotkey", out var hotkey) ? hotkey : defaults.Hotkey,
+            StartWithWindows = TryGetBoolean(root, "startWithWindows", out var startWithWindows)
+                ? startWithWindows
+                : defaults.StartWithWindows,
+            HideInFullscreen = TryGetBoolean(root, "hideInFullscreen", out var hideInFullscreen)
+                ? hideInFullscreen
+                : defaults.HideInFullscreen,
+            MonitorMode = TryGetString(root, "monitorMode", out var monitorMode)
+                ? monitorMode
+                : defaults.MonitorMode
+        };
+    }
+
+    private static bool TryGetInt32(JsonElement root, string propertyName, out int value)
+    {
+        value = default;
+        return root.TryGetProperty(propertyName, out var property) &&
+               property.ValueKind == JsonValueKind.Number &&
+               property.TryGetInt32(out value);
+    }
+
+    private static bool TryGetBoolean(JsonElement root, string propertyName, out bool value)
+    {
+        if (root.TryGetProperty(propertyName, out var property) &&
+            property.ValueKind is JsonValueKind.True or JsonValueKind.False)
+        {
+            value = property.GetBoolean();
+            return true;
+        }
+
+        value = default;
+        return false;
+    }
+
+    private static bool TryGetString(JsonElement root, string propertyName, out string value)
+    {
+        if (root.TryGetProperty(propertyName, out var property) &&
+            property.ValueKind == JsonValueKind.String &&
+            property.GetString() is { } stringValue)
+        {
+            value = stringValue;
+            return true;
+        }
+
+        value = string.Empty;
+        return false;
     }
 
     private static string ToSettingValue(MonitorPlacementMode mode) =>
