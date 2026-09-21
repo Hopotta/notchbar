@@ -5,6 +5,7 @@ using System.Windows.Media;
 using System.Windows.Media.Animation;
 using NotchBar.Core;
 using NotchBar.Services;
+using NotchBar.UI;
 
 namespace NotchBar;
 
@@ -27,6 +28,7 @@ public partial class MainWindow : Window, IDisposable
     private readonly FullscreenSuppressionService? _fullscreenSuppressionService;
     private string? _displayedItemId;
     private bool _pendingItemTransition;
+    private bool _contentMorphPrepared;
     private bool _isFullscreenSuppressed;
     private bool _disposed;
 
@@ -370,31 +372,41 @@ public partial class MainWindow : Window, IDisposable
 
     private void PrepareContentMorph()
     {
+        if (_contentMorphPrepared &&
+            CompactHost.Visibility == Visibility.Visible &&
+            ExpandedHost.Visibility == Visibility.Visible)
+        {
+            return;
+        }
+
         CompactHost.Visibility = Visibility.Visible;
         ExpandedHost.Visibility = Visibility.Visible;
+        CompactHost.Opacity = 1;
+        ExpandedHost.Opacity = 1;
+
+        // Arrange the target view once before the first transition frame. The
+        // following frames only update render transforms and opacity.
+        ContentRoot.UpdateLayout();
+        _contentMorphPrepared = true;
     }
 
     private void ApplyContentMorphFrame(double expansionProgress)
     {
-        var progress = Math.Clamp(expansionProgress, 0d, 1d);
-        var smoothProgress = progress * progress * (3d - (2d * progress));
+        var choreography = TransitionChoreography.Evaluate(expansionProgress);
+        var compactAnchors = CompactContent.CaptureTransitionAnchors(ContentRoot);
+        var expandedAnchors = ExpandedContent.CaptureTransitionAnchors(ContentRoot);
+        var offsets = SharedElementOffsets.Between(compactAnchors, expandedAnchors);
 
-        CompactHost.Visibility = Visibility.Visible;
-        ExpandedHost.Visibility = Visibility.Visible;
-        CompactHost.Opacity = 1d - smoothProgress;
-        ExpandedHost.Opacity = smoothProgress;
-        CompactHostTranslate.Y = -1.5d * smoothProgress;
-        ExpandedHostTranslate.Y = 4d * (1d - smoothProgress);
-        CompactHostScale.ScaleX = 1d - (0.008d * smoothProgress);
-        CompactHostScale.ScaleY = 1d - (0.018d * smoothProgress);
-        ExpandedHostScale.ScaleX = 0.992d + (0.008d * smoothProgress);
-        ExpandedHostScale.ScaleY = 0.972d + (0.028d * smoothProgress);
+        CompactContent.ApplyTransition(choreography, offsets);
+        ExpandedContent.ApplyTransition(choreography, offsets);
     }
 
     private void SetContentStateImmediate(NotchState visualState)
     {
-        ResetHost(CompactHost, CompactHostTranslate, CompactHostScale);
-        ResetHost(ExpandedHost, ExpandedHostTranslate, ExpandedHostScale);
+        _contentMorphPrepared = false;
+        CompactHost.Opacity = 1;
+        ExpandedHost.Opacity = 1;
+        CompactContent.ResetTransitionVisuals();
         ExpandedContent.ResetLayoutTransition();
 
         var hideAll = visualState == NotchState.Hidden && _isFullscreenSuppressed;
@@ -404,21 +416,6 @@ public partial class MainWindow : Window, IDisposable
         ExpandedHost.Visibility = !hideAll && visualState == NotchState.Expanded
             ? Visibility.Visible
             : Visibility.Collapsed;
-    }
-
-    private static void ResetHost(
-        FrameworkElement host,
-        TranslateTransform translate,
-        ScaleTransform scale)
-    {
-        host.BeginAnimation(OpacityProperty, null);
-        translate.BeginAnimation(TranslateTransform.YProperty, null);
-        scale.BeginAnimation(ScaleTransform.ScaleXProperty, null);
-        scale.BeginAnimation(ScaleTransform.ScaleYProperty, null);
-        host.Opacity = 1;
-        translate.Y = 0;
-        scale.ScaleX = 1;
-        scale.ScaleY = 1;
     }
 
     private void StatusStore_OnChanged(object? sender, StatusStoreChangedEventArgs e)

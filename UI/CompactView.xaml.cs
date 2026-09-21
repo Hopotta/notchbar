@@ -1,6 +1,8 @@
 using System.Windows;
+using System.Windows.Media;
 using NotchBar.Core;
 using MediaBrush = System.Windows.Media.Brush;
+using Point = System.Windows.Point;
 using UserControl = System.Windows.Controls.UserControl;
 
 namespace NotchBar.UI;
@@ -11,11 +13,25 @@ public partial class CompactView : UserControl
     private const double MaxPreferredWidth = 520;
     private const double WidthStep = 4;
 
+    private readonly ScaleTransform _statusScale = new();
+    private readonly TranslateTransform _statusTranslate = new();
+    private readonly TranslateTransform _titleTranslate = new();
+    private readonly TranslateTransform _summaryTranslate = new();
+    private readonly TranslateTransform _secondaryTranslate = new();
+    private readonly TranslateTransform _pinTranslate = new();
+
     public event EventHandler? PinClicked;
 
     public CompactView()
     {
         InitializeComponent();
+
+        StatusHalo.RenderTransformOrigin = new Point(0.5, 0.5);
+        StatusHalo.RenderTransform = CreateStatusTransform(_statusScale, _statusTranslate);
+        TitleChip.RenderTransform = _titleTranslate;
+        SummaryText.RenderTransform = _summaryTranslate;
+        SecondaryText.RenderTransform = _secondaryTranslate;
+        PinButton.RenderTransform = _pinTranslate;
     }
 
     public void ShowItem(StatusItem item, bool pinned)
@@ -59,6 +75,91 @@ public partial class CompactView : UserControl
     {
         LayoutRoot.Measure(new System.Windows.Size(double.PositiveInfinity, 44));
         return Quantize(Math.Clamp(LayoutRoot.DesiredSize.Width + 4, MinPreferredWidth, MaxPreferredWidth));
+    }
+
+    public SharedElementAnchors CaptureTransitionAnchors(UIElement ancestor) => new(
+        StatusHalo.Visibility == Visibility.Visible
+            ? GetUntranslatedCenter(StatusHalo, _statusTranslate, ancestor)
+            : null,
+        GetUntranslatedCenter(TitleChip, _titleTranslate, ancestor),
+        GetUntranslatedCenter(SummaryText, _summaryTranslate, ancestor),
+        GetUntranslatedCenter(PinButton, _pinTranslate, ancestor));
+
+    public void ApplyTransition(
+        TransitionChoreographyFrame frame,
+        SharedElementOffsets offsets)
+    {
+        var progress = frame.PositionProgress;
+        SetTranslation(_statusTranslate, offsets.Status, progress);
+        SetTranslation(_titleTranslate, offsets.Title, progress);
+        SetTranslation(_summaryTranslate, offsets.Summary, progress);
+        SetTranslation(_pinTranslate, offsets.Pin, progress);
+        _secondaryTranslate.Y = frame.CompactSecondaryOffsetY;
+
+        var sharedOpacity = frame.CompactSharedOpacity;
+        StatusHalo.Opacity = sharedOpacity;
+        TitleChip.Opacity = sharedOpacity;
+        SummaryText.Opacity = sharedOpacity;
+        PinButton.Opacity = sharedOpacity;
+        SecondaryText.Opacity = frame.CompactSecondaryOpacity;
+
+        // 18px compact halo and 24px expanded halo meet at the same apparent
+        // size during the handoff; text is never scaled.
+        var haloScale = 1d + ((24d / 18d - 1d) * progress);
+        _statusScale.ScaleX = haloScale;
+        _statusScale.ScaleY = haloScale;
+    }
+
+    public void ResetTransitionVisuals()
+    {
+        Reset(_statusTranslate);
+        Reset(_titleTranslate);
+        Reset(_summaryTranslate);
+        Reset(_secondaryTranslate);
+        Reset(_pinTranslate);
+        _statusScale.ScaleX = 1;
+        _statusScale.ScaleY = 1;
+        StatusHalo.Opacity = 1;
+        TitleChip.Opacity = 1;
+        SummaryText.Opacity = 1;
+        SecondaryText.Opacity = 1;
+        PinButton.Opacity = 1;
+    }
+
+    private static TransformGroup CreateStatusTransform(
+        ScaleTransform scale,
+        TranslateTransform translate)
+    {
+        var transform = new TransformGroup();
+        transform.Children.Add(scale);
+        transform.Children.Add(translate);
+        return transform;
+    }
+
+    private static Point GetUntranslatedCenter(
+        FrameworkElement element,
+        TranslateTransform translation,
+        UIElement ancestor)
+    {
+        var transformed = element.TranslatePoint(
+            new Point(element.ActualWidth / 2d, element.ActualHeight / 2d),
+            ancestor);
+        return new Point(transformed.X - translation.X, transformed.Y - translation.Y);
+    }
+
+    private static void SetTranslation(
+        TranslateTransform transform,
+        Vector offset,
+        double multiplier)
+    {
+        transform.X = offset.X * multiplier;
+        transform.Y = offset.Y * multiplier;
+    }
+
+    private static void Reset(TranslateTransform transform)
+    {
+        transform.X = 0;
+        transform.Y = 0;
     }
 
     private static double Quantize(double width) => Math.Ceiling(width / WidthStep) * WidthStep;

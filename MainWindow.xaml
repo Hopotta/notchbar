@@ -43,26 +43,12 @@
                     CornerRadius="1" />
 
             <Grid x:Name="CompactHost"
-                  Visibility="Collapsed"
-                  RenderTransformOrigin="0.5,0">
-                <Grid.RenderTransform>
-                    <TransformGroup>
-                        <ScaleTransform x:Name="CompactHostScale" ScaleX="1" ScaleY="1" />
-                        <TranslateTransform x:Name="CompactHostTranslate" />
-                    </TransformGroup>
-                </Grid.RenderTransform>
+                  Visibility="Collapsed">
                 <ui:CompactView x:Name="CompactContent" />
             </Grid>
 
             <Grid x:Name="ExpandedHost"
-                  Visibility="Collapsed"
-                  RenderTransformOrigin="0.5,0">
-                <Grid.RenderTransform>
-                    <TransformGroup>
-                        <ScaleTransform x:Name="ExpandedHostScale" ScaleX="1" ScaleY="1" />
-                        <TranslateTransform x:Name="ExpandedHostTranslate" />
-                    </TransformGroup>
-                </Grid.RenderTransform>
+                  Visibility="Collapsed">
                 <ui:ExpandedView x:Name="ExpandedContent" />
             </Grid>
         </Grid>

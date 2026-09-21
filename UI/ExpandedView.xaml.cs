@@ -1,8 +1,10 @@
 using System.Windows;
+using System.Windows.Media;
 using System.Windows.Threading;
 using NotchBar.Core;
 using NotchBar.Services;
 using MediaBrush = System.Windows.Media.Brush;
+using Point = System.Windows.Point;
 using UserControl = System.Windows.Controls.UserControl;
 
 namespace NotchBar.UI;
@@ -18,12 +20,23 @@ public partial class ExpandedView : UserControl
     private const double WidthStep = 4;
 
     private readonly DispatcherTimer _updatedTimer;
+    private readonly ScaleTransform _statusScale = new();
+    private readonly TranslateTransform _statusTranslate = new();
+    private readonly TranslateTransform _titleTranslate = new();
+    private readonly TranslateTransform _summaryTranslate = new();
+    private readonly TranslateTransform _pinTranslate = new();
     private StatusItem? _currentItem;
     private bool _usesSimpleBody;
 
     public ExpandedView()
     {
         InitializeComponent();
+
+        StatusHalo.RenderTransformOrigin = new Point(0.5, 0.5);
+        StatusHalo.RenderTransform = CreateStatusTransform(_statusScale, _statusTranslate);
+        TitleText.RenderTransform = _titleTranslate;
+        SummaryText.RenderTransform = _summaryTranslate;
+        PinButton.RenderTransform = _pinTranslate;
 
         _updatedTimer = new DispatcherTimer(DispatcherPriority.Background)
         {
@@ -93,12 +106,90 @@ public partial class ExpandedView : UserControl
         return Math.Ceiling(Math.Clamp(LayoutRoot.DesiredSize.Height + 4, minHeight, MaxPreferredHeight));
     }
 
+    public SharedElementAnchors CaptureTransitionAnchors(UIElement ancestor) => new(
+        StatusHalo.Visibility == Visibility.Visible
+            ? GetUntranslatedCenter(StatusHalo, _statusTranslate, ancestor)
+            : null,
+        GetUntranslatedCenter(TitleText, _titleTranslate, ancestor),
+        GetUntranslatedCenter(SummaryText, _summaryTranslate, ancestor),
+        GetUntranslatedCenter(PinButton, _pinTranslate, ancestor));
+
+    public void ApplyTransition(
+        TransitionChoreographyFrame frame,
+        SharedElementOffsets offsets)
+    {
+        var reverseProgress = frame.PositionProgress - 1d;
+        SetTranslation(_statusTranslate, offsets.Status, reverseProgress);
+        SetTranslation(_titleTranslate, offsets.Title, reverseProgress);
+        SetTranslation(_summaryTranslate, offsets.Summary, reverseProgress);
+        SetTranslation(_pinTranslate, offsets.Pin, reverseProgress);
+
+        var sharedOpacity = frame.ExpandedSharedOpacity;
+        StatusHalo.Opacity = sharedOpacity;
+        TitleText.Opacity = sharedOpacity;
+        SummaryText.Opacity = sharedOpacity;
+        PinButton.Opacity = sharedOpacity;
+
+        var haloScale = (18d / 24d) + ((1d - (18d / 24d)) * frame.PositionProgress);
+        _statusScale.ScaleX = haloScale;
+        _statusScale.ScaleY = haloScale;
+
+        BodyMotionHost.Opacity = frame.ExpandedBodyOpacity;
+        BodyMotionTranslate.Y = frame.ExpandedBodyOffsetY;
+        BodyMotionHost.IsHitTestVisible = frame.ExpandedBodyOpacity > 0.95;
+    }
+
     public void ResetLayoutTransition()
     {
-        BodyMotionHost.BeginAnimation(OpacityProperty, null);
-        BodyMotionTranslate.BeginAnimation(System.Windows.Media.TranslateTransform.YProperty, null);
+        Reset(_statusTranslate);
+        Reset(_titleTranslate);
+        Reset(_summaryTranslate);
+        Reset(_pinTranslate);
+        _statusScale.ScaleX = 1;
+        _statusScale.ScaleY = 1;
+        StatusHalo.Opacity = 1;
+        TitleText.Opacity = 1;
+        SummaryText.Opacity = 1;
+        PinButton.Opacity = 1;
         BodyMotionHost.Opacity = 1;
         BodyMotionTranslate.Y = 0;
+        BodyMotionHost.IsHitTestVisible = true;
+    }
+
+    private static TransformGroup CreateStatusTransform(
+        ScaleTransform scale,
+        TranslateTransform translate)
+    {
+        var transform = new TransformGroup();
+        transform.Children.Add(scale);
+        transform.Children.Add(translate);
+        return transform;
+    }
+
+    private static Point GetUntranslatedCenter(
+        FrameworkElement element,
+        TranslateTransform translation,
+        UIElement ancestor)
+    {
+        var transformed = element.TranslatePoint(
+            new Point(element.ActualWidth / 2d, element.ActualHeight / 2d),
+            ancestor);
+        return new Point(transformed.X - translation.X, transformed.Y - translation.Y);
+    }
+
+    private static void SetTranslation(
+        TranslateTransform transform,
+        Vector offset,
+        double multiplier)
+    {
+        transform.X = offset.X * multiplier;
+        transform.Y = offset.Y * multiplier;
+    }
+
+    private static void Reset(TranslateTransform transform)
+    {
+        transform.X = 0;
+        transform.Y = 0;
     }
 
     private void ApplyBodyContent(
