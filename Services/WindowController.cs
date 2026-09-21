@@ -1,3 +1,4 @@
+using System.Drawing;
 using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Interop;
@@ -237,13 +238,7 @@ public sealed class WindowController : IDisposable
             dpi = 96;
         }
 
-        var scale = dpi / 96d;
-        var width = Math.Max(1, (int)Math.Round(frame.Width * scale));
-        var height = Math.Max(1, (int)Math.Round(frame.Height * scale));
-        var x = bounds.Left + Math.Max(0, (bounds.Width - width) / 2);
-        var y = _isSuppressed
-            ? bounds.Top - height
-            : bounds.Top + (int)Math.Round(frame.TopOffset * scale);
+        var geometry = WindowPixelGeometry.Calculate(bounds, dpi, frame, _isSuppressed);
 
         _committingGeometry = true;
         try
@@ -251,10 +246,10 @@ public sealed class WindowController : IDisposable
             _ = SetWindowPos(
                 _handle,
                 IntPtr.Zero,
-                x,
-                y,
-                width,
-                height,
+                geometry.X,
+                geometry.Y,
+                geometry.Width,
+                geometry.Height,
                 SwpNoZOrder | SwpNoActivate);
         }
         finally
@@ -313,6 +308,34 @@ public sealed class WindowController : IDisposable
 
     [DllImport("user32.dll")]
     private static extern uint GetDpiForWindow(IntPtr hWnd);
+}
+
+/// <summary>
+/// Pixel geometry used for the single native window commit performed each
+/// rendering frame. Keeping DIP-to-pixel conversion pure makes mixed-DPI
+/// placement deterministic and independently testable.
+/// </summary>
+public readonly record struct WindowPixelGeometry(int X, int Y, int Width, int Height)
+{
+    public static WindowPixelGeometry Calculate(
+        Rectangle monitorBounds,
+        uint dpi,
+        WindowMotionFrame frame,
+        bool isSuppressed)
+    {
+        var scale = (dpi == 0 ? 96 : dpi) / 96d;
+        var width = Math.Max(1, ScaleToPixels(frame.Width, scale));
+        var height = Math.Max(1, ScaleToPixels(frame.Height, scale));
+        var x = monitorBounds.Left + Math.Max(0, (monitorBounds.Width - width) / 2);
+        var y = isSuppressed
+            ? monitorBounds.Top - height
+            : monitorBounds.Top + ScaleToPixels(frame.TopOffset, scale);
+
+        return new WindowPixelGeometry(x, y, width, height);
+    }
+
+    private static int ScaleToPixels(double value, double scale) =>
+        (int)Math.Round(value * scale, MidpointRounding.AwayFromZero);
 }
 
 public sealed class WindowMotionFrameChangedEventArgs(

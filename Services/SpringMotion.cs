@@ -7,14 +7,23 @@ namespace NotchBar.Services;
 /// </summary>
 public sealed class SpringMotion
 {
-    private const double SettledDistance = 0.001;
-    private const double SettledVelocity = 0.001;
+    private const double DefaultSettledDistance = 0.001;
+    private const double DefaultSettledVelocity = 0.001;
 
-    public SpringMotion(double initialValue = 0, double response = 0.34)
+    private readonly double _settledDistance;
+    private readonly double _settledVelocity;
+
+    public SpringMotion(
+        double initialValue = 0,
+        double response = 0.34,
+        double settledDistance = DefaultSettledDistance,
+        double settledVelocity = DefaultSettledVelocity)
     {
         Value = initialValue;
         Target = initialValue;
         Response = response;
+        _settledDistance = Math.Max(0, settledDistance);
+        _settledVelocity = Math.Max(0, settledVelocity);
     }
 
     public double Value { get; private set; }
@@ -28,8 +37,8 @@ public sealed class SpringMotion
     /// </summary>
     public double Response { get; set; }
 
-    public bool IsSettled => Math.Abs(Target - Value) <= SettledDistance
-        && Math.Abs(Velocity) <= SettledVelocity;
+    public bool IsSettled => Math.Abs(Target - Value) <= _settledDistance
+        && Math.Abs(Velocity) <= _settledVelocity;
 
     public void SetImmediate(double value)
     {
@@ -47,6 +56,11 @@ public sealed class SpringMotion
     /// </summary>
     public bool Step(TimeSpan elapsed)
     {
+        if (elapsed <= TimeSpan.Zero)
+        {
+            return false;
+        }
+
         if (IsSettled)
         {
             Value = Target;
@@ -54,7 +68,7 @@ public sealed class SpringMotion
             return false;
         }
 
-        var seconds = Math.Clamp(elapsed.TotalSeconds, 0.0001, 0.05);
+        var seconds = Math.Min(elapsed.TotalSeconds, 0.05);
         var response = Math.Clamp(Response, 0.18, 0.8);
         var angularFrequency = 4.6 / response;
         var error = Value - Target;

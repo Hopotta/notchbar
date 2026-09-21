@@ -1,3 +1,4 @@
+using System.Drawing;
 using NotchBar.Core;
 using NotchBar.Services;
 using Xunit;
@@ -6,6 +7,81 @@ namespace NotchBar.Tests;
 
 public sealed class WindowTransitionMotionTests
 {
+    [Fact]
+    public void SpringMotion_ZeroOrNegativeElapsed_DoesNotAdvance()
+    {
+        var motion = new SpringMotion();
+        motion.SetTarget(1);
+
+        Assert.False(motion.Step(TimeSpan.Zero));
+        Assert.False(motion.Step(TimeSpan.FromMilliseconds(-10)));
+        Assert.Equal(0, motion.Value);
+        Assert.Equal(0, motion.Velocity);
+    }
+
+    [Fact]
+    public void SpringMotion_SlowFrame_IsClampedToFiftyMilliseconds()
+    {
+        var slowFrame = new SpringMotion();
+        var clampedFrame = new SpringMotion();
+        slowFrame.SetTarget(1);
+        clampedFrame.SetTarget(1);
+
+        slowFrame.Step(TimeSpan.FromSeconds(1));
+        clampedFrame.Step(TimeSpan.FromMilliseconds(50));
+
+        Assert.Equal(clampedFrame.Value, slowFrame.Value, 12);
+        Assert.Equal(clampedFrame.Velocity, slowFrame.Velocity, 12);
+    }
+
+    [Fact]
+    public void TransitionMotion_SettlesWithinAVisuallyPracticalInterval()
+    {
+        var motion = CreateVisibleCompactMotion();
+        motion.Retarget(NotchState.Expanded, animate: true);
+
+        var frames = 0;
+        while (frames < 60 && !motion.IsSettled)
+        {
+            motion.Step(TimeSpan.FromSeconds(1d / 60d));
+            frames++;
+        }
+
+        Assert.True(motion.IsSettled);
+        Assert.InRange(frames, 1, 55);
+        Assert.Equal(500, motion.Current.Width, 6);
+        Assert.Equal(220, motion.Current.Height, 6);
+        Assert.Equal(1, motion.Current.ExpansionProgress, 6);
+    }
+
+    [Theory]
+    [InlineData(96u, 320, 37, -1120, -35)]
+    [InlineData(120u, 400, 46, -1160, -44)]
+    [InlineData(144u, 480, 56, -1200, -53)]
+    public void PixelGeometry_IsDeterministicAcrossCommonDpiScales(
+        uint dpi,
+        int expectedWidth,
+        int expectedHeight,
+        int expectedX,
+        int expectedY)
+    {
+        var monitor = new Rectangle(-1920, 0, 1920, 1080);
+        var frame = new WindowMotionFrame(
+            Width: 320,
+            Height: 37,
+            TopOffset: -35,
+            ExpansionProgress: 0,
+            TargetState: NotchState.Hidden,
+            IsSettled: false);
+
+        var geometry = WindowPixelGeometry.Calculate(monitor, dpi, frame, isSuppressed: false);
+
+        Assert.Equal(expectedWidth, geometry.Width);
+        Assert.Equal(expectedHeight, geometry.Height);
+        Assert.Equal(expectedX, geometry.X);
+        Assert.Equal(expectedY, geometry.Y);
+    }
+
     [Fact]
     public void ExpandedToHidden_RetargetsWithoutGeometryJumpAndSettlesHidden()
     {

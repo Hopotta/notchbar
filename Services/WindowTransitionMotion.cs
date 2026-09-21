@@ -10,10 +10,25 @@ public sealed class WindowTransitionMotion
 {
     private const double HiddenTopOffset = -(WindowController.CompactHeight - WindowController.HiddenTriggerHeight);
 
-    private readonly SpringMotion _width = new(WindowController.DefaultWindowWidth, response: 0.34);
-    private readonly SpringMotion _height = new(WindowController.CompactHeight, response: 0.34);
-    private readonly SpringMotion _top = new(HiddenTopOffset, response: 0.30);
-    private readonly SpringMotion _expansion = new(response: 0.34);
+    private readonly SpringMotion _width = new(
+        WindowController.DefaultWindowWidth,
+        response: 0.34,
+        settledDistance: 0.08,
+        settledVelocity: 0.5);
+    private readonly SpringMotion _height = new(
+        WindowController.CompactHeight,
+        response: 0.34,
+        settledDistance: 0.08,
+        settledVelocity: 0.5);
+    private readonly SpringMotion _top = new(
+        HiddenTopOffset,
+        response: 0.30,
+        settledDistance: 0.04,
+        settledVelocity: 0.35);
+    private readonly SpringMotion _expansion = new(
+        response: 0.34,
+        settledDistance: 0.001,
+        settledVelocity: 0.02);
 
     private double _compactWidth = WindowController.DefaultWindowWidth;
     private double _expandedWidth = WindowController.DefaultWindowWidth;
