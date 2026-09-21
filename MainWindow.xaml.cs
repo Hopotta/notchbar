@@ -31,10 +31,6 @@ public partial class MainWindow : Window, IDisposable
     private bool _pendingItemTransition;
     private bool _contentMorphPrepared;
     private bool _displayedItemIsClock;
-    private bool _clockAnchorsAvailable;
-    private SharedElementOffsets _sharedElementOffsets;
-    private ClockTextAnchors _compactClockAnchors;
-    private ClockTextAnchors _expandedClockAnchors;
     private bool _isFullscreenSuppressed;
     private bool _disposed;
 
@@ -399,45 +395,49 @@ public partial class MainWindow : Window, IDisposable
         ExpandedHost.Opacity = 1;
 
         // Arrange the target view once before the first transition frame. The
-        // following frames only update render transforms and opacity.
+        // following frames read live arranged positions but never force layout.
         ContentRoot.UpdateLayout();
-        var compactAnchors = CompactContent.CaptureTransitionAnchors(ContentRoot);
-        var expandedAnchors = ExpandedContent.CaptureTransitionAnchors(ContentRoot);
-        _sharedElementOffsets = SharedElementOffsets.Between(compactAnchors, expandedAnchors);
-        _clockAnchorsAvailable = false;
-        if (_displayedItemIsClock)
-        {
-            var compactClockAnchors = CompactContent.CaptureClockTextAnchors(ContentRoot);
-            var expandedClockAnchors = ExpandedContent.CaptureClockTextAnchors(ContentRoot);
-            if (AreClockAnchorsUsable(compactClockAnchors) &&
-                AreClockAnchorsUsable(expandedClockAnchors))
-            {
-                _compactClockAnchors = compactClockAnchors;
-                _expandedClockAnchors = expandedClockAnchors;
-                _clockAnchorsAvailable = true;
-            }
-        }
-
         _contentMorphPrepared = true;
     }
 
     private void ApplyContentMorphFrame(double expansionProgress)
     {
         var choreography = TransitionChoreography.Evaluate(expansionProgress);
-        var clockOverlayOwnsText = _displayedItemIsClock && _clockAnchorsAvailable;
+        // Native window resizing can re-arrange both hosts between frames. Read
+        // their lightweight point anchors after that arrange so the target does
+        // not remain tied to whichever width started the transition.
+        var compactAnchors = CompactContent.CaptureTransitionAnchors(ContentRoot);
+        var expandedAnchors = ExpandedContent.CaptureTransitionAnchors(ContentRoot);
+        var sharedElementOffsets = SharedElementOffsets.Between(compactAnchors, expandedAnchors);
+
+        ClockTextAnchors compactClockAnchors = default;
+        ClockTextAnchors expandedClockAnchors = default;
+        var clockOverlayOwnsText = false;
+        if (_displayedItemIsClock)
+        {
+            // These captures only translate cached baselines into live points;
+            // FormattedText measurement is cached by each view's DPI/typeface.
+            compactClockAnchors = CompactContent.CaptureClockTextAnchors(ContentRoot);
+            expandedClockAnchors = ExpandedContent.CaptureClockTextAnchors(ContentRoot);
+            clockOverlayOwnsText = AreClockAnchorsUsable(compactClockAnchors) &&
+                AreClockAnchorsUsable(expandedClockAnchors);
+        }
 
         CompactContent.ApplyTransition(
             choreography,
-            _sharedElementOffsets,
+            sharedElementOffsets,
             clockOverlayOwnsText);
         ExpandedContent.ApplyTransition(
             choreography,
-            _sharedElementOffsets,
+            sharedElementOffsets,
             clockOverlayOwnsText);
 
         if (clockOverlayOwnsText)
         {
-            ApplyClockOverlayFrame(expansionProgress);
+            ApplyClockOverlayFrame(
+                expansionProgress,
+                compactClockAnchors,
+                expandedClockAnchors);
         }
         else
         {
@@ -448,7 +448,6 @@ public partial class MainWindow : Window, IDisposable
     private void SetContentStateImmediate(NotchState visualState)
     {
         _contentMorphPrepared = false;
-        _clockAnchorsAvailable = false;
         ResetClockOverlayOwnership();
         CompactHost.Opacity = 1;
         ExpandedHost.Opacity = 1;
@@ -534,7 +533,6 @@ public partial class MainWindow : Window, IDisposable
             // views before the next shared-element frame instead of rendering
             // one frame against stale positions.
             _contentMorphPrepared = false;
-            _clockAnchorsAvailable = false;
         }
 
         var compactWidth = CompactContent.GetPreferredWidth();
@@ -543,20 +541,23 @@ public partial class MainWindow : Window, IDisposable
         _windowController.SetPreferredSize(compactWidth, expandedWidth, expandedHeight, applyWindowSize);
     }
 
-    private void ApplyClockOverlayFrame(double expansionProgress)
+    private void ApplyClockOverlayFrame(
+        double expansionProgress,
+        ClockTextAnchors compactAnchors,
+        ClockTextAnchors expandedAnchors)
     {
         var title = TransitionChoreography.EvaluateSharedText(
             expansionProgress,
-            _compactClockAnchors.Title,
-            _expandedClockAnchors.Title);
+            compactAnchors.Title,
+            expandedAnchors.Title);
         var time = TransitionChoreography.EvaluateSharedText(
             expansionProgress,
-            _compactClockAnchors.Time,
-            _expandedClockAnchors.Time);
+            compactAnchors.Time,
+            expandedAnchors.Time);
         var date = TransitionChoreography.EvaluateClockDate(
             expansionProgress,
-            _compactClockAnchors.Date,
-            _expandedClockAnchors.Date);
+            compactAnchors.Date,
+            expandedAnchors.Date);
 
         ClockTransitionOverlay.Visibility = Visibility.Visible;
         ApplyClockTextPlacement(ClockTitleOverlay, ClockTitleOverlayScale, title);
@@ -660,7 +661,6 @@ public partial class MainWindow : Window, IDisposable
 
         _disposed = true;
         _contentMorphPrepared = false;
-        _clockAnchorsAvailable = false;
         ResetClockOverlayOwnership();
         _statusStore.Changed -= StatusStore_OnChanged;
         _stateMachine.StateChanged -= StateMachine_OnStateChanged;

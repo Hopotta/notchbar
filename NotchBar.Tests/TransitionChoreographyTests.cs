@@ -119,6 +119,24 @@ public sealed class TransitionChoreographyTests
     }
 
     [Fact]
+    public void ClockText_SameProgressUsesLatestGeometryAnchors()
+    {
+        var compact = new ClockTextAnchor(new Point(210, 21), 11, 8);
+        var firstExpanded = new ClockTextAnchor(new Point(28, 38), 13.5, 9.818181818181818);
+        var rearrangedExpanded = firstExpanded with
+        {
+            LeadingBaseline = new Point(44, 42)
+        };
+
+        var first = TransitionChoreography.EvaluateSharedText(0.5, compact, firstExpanded);
+        var rearranged = TransitionChoreography.EvaluateSharedText(0.5, compact, rearrangedExpanded);
+
+        Assert.NotEqual(first.LeadingBaseline, rearranged.LeadingBaseline);
+        Assert.Equal(8, rearranged.LeadingBaseline.X - first.LeadingBaseline.X, 10);
+        Assert.Equal(2, rearranged.LeadingBaseline.Y - first.LeadingBaseline.Y, 10);
+    }
+
+    [Fact]
     public void ClockDate_DetachesVerticallyBeforeTravellingHorizontally()
     {
         var compact = new ClockTextAnchor(new Point(286, 23), 11, 8);

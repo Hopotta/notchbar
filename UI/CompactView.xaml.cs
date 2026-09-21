@@ -21,6 +21,9 @@ public partial class CompactView : UserControl
     private readonly TranslateTransform _summaryTranslate = new();
     private readonly TranslateTransform _secondaryTranslate = new();
     private readonly TranslateTransform _pinTranslate = new();
+    private TextBaselineMetrics? _titleBaselineMetrics;
+    private TextBaselineMetrics? _summaryBaselineMetrics;
+    private TextBaselineMetrics? _secondaryBaselineMetrics;
 
     public event EventHandler? PinClicked;
 
@@ -89,9 +92,9 @@ public partial class CompactView : UserControl
         GetUntranslatedCenter(PinButton, _pinTranslate, ancestor));
 
     public ClockTextAnchors CaptureClockTextAnchors(UIElement ancestor) => new(
-        CaptureTextAnchor(TitleText, _titleTranslate, ancestor),
-        CaptureTextAnchor(SummaryText, _summaryTranslate, ancestor),
-        CaptureTextAnchor(SecondaryText, _secondaryTranslate, ancestor));
+        CaptureTextAnchor(TitleText, _titleTranslate, ancestor, ref _titleBaselineMetrics),
+        CaptureTextAnchor(SummaryText, _summaryTranslate, ancestor, ref _summaryBaselineMetrics),
+        CaptureTextAnchor(SecondaryText, _secondaryTranslate, ancestor, ref _secondaryBaselineMetrics));
 
     public void ApplyTransition(
         TransitionChoreographyFrame frame,
@@ -136,22 +139,40 @@ public partial class CompactView : UserControl
     private static ClockTextAnchor CaptureTextAnchor(
         TextBlock element,
         TranslateTransform translation,
-        UIElement ancestor)
+        UIElement ancestor,
+        ref TextBaselineMetrics? baselineMetrics)
     {
         var dpi = VisualTreeHelper.GetDpi(element);
-        var formatted = new FormattedText(
-            string.IsNullOrEmpty(element.Text) ? "Ag" : element.Text,
-            CultureInfo.CurrentUICulture,
-            element.FlowDirection,
-            new Typeface(
-                element.FontFamily,
-                element.FontStyle,
-                element.FontWeight,
-                element.FontStretch),
+        var key = new TextBaselineKey(
+            element.FontFamily,
+            element.FontStyle,
+            element.FontWeight,
+            element.FontStretch,
             element.FontSize,
-            System.Windows.Media.Brushes.Transparent,
-            dpi.PixelsPerDip);
-        var baselineFromTop = formatted.Baseline;
+            dpi.PixelsPerDip,
+            element.FlowDirection,
+            CultureInfo.CurrentUICulture);
+        // Font metrics are invariant across clock ticks and motion frames. Only
+        // DPI or typography changes require another FormattedText measurement.
+        if (baselineMetrics is not { } metrics || metrics.Key != key)
+        {
+            var formatted = new FormattedText(
+                "Ag",
+                key.Culture,
+                key.FlowDirection,
+                new Typeface(
+                    key.FontFamily,
+                    key.FontStyle,
+                    key.FontWeight,
+                    key.FontStretch),
+                key.FontSize,
+                System.Windows.Media.Brushes.Transparent,
+                key.PixelsPerDip);
+            metrics = new TextBaselineMetrics(key, formatted.Baseline);
+            baselineMetrics = metrics;
+        }
+
+        var baselineFromTop = metrics.BaselineFromTop;
         var leadingX = element.FlowDirection == System.Windows.FlowDirection.RightToLeft
             ? element.ActualWidth
             : 0d;
@@ -166,6 +187,20 @@ public partial class CompactView : UserControl
             element.FontSize,
             baselineFromTop);
     }
+
+    private readonly record struct TextBaselineKey(
+        System.Windows.Media.FontFamily FontFamily,
+        System.Windows.FontStyle FontStyle,
+        System.Windows.FontWeight FontWeight,
+        System.Windows.FontStretch FontStretch,
+        double FontSize,
+        double PixelsPerDip,
+        System.Windows.FlowDirection FlowDirection,
+        CultureInfo Culture);
+
+    private readonly record struct TextBaselineMetrics(
+        TextBaselineKey Key,
+        double BaselineFromTop);
 
     private static TransformGroup CreateStatusTransform(
         ScaleTransform scale,
