@@ -128,7 +128,6 @@ public partial class ExpandedView : UserControl
         StatusHalo.Opacity = sharedOpacity;
         TitleText.Opacity = sharedOpacity;
         SummaryText.Opacity = sharedOpacity;
-        PinButton.Opacity = sharedOpacity;
 
         var haloScale = (18d / 24d) + ((1d - (18d / 24d)) * frame.PositionProgress);
         _statusScale.ScaleX = haloScale;
@@ -150,7 +149,6 @@ public partial class ExpandedView : UserControl
         StatusHalo.Opacity = 1;
         TitleText.Opacity = 1;
         SummaryText.Opacity = 1;
-        PinButton.Opacity = 1;
         BodyMotionHost.Opacity = 1;
         BodyMotionTranslate.Y = 0;
         BodyMotionHost.IsHitTestVisible = true;

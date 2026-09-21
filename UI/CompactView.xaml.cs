@@ -100,7 +100,6 @@ public partial class CompactView : UserControl
         StatusHalo.Opacity = sharedOpacity;
         TitleChip.Opacity = sharedOpacity;
         SummaryText.Opacity = sharedOpacity;
-        PinButton.Opacity = sharedOpacity;
         SecondaryText.Opacity = frame.CompactSecondaryOpacity;
 
         // 18px compact halo and 24px expanded halo meet at the same apparent
@@ -123,7 +122,6 @@ public partial class CompactView : UserControl
         TitleChip.Opacity = 1;
         SummaryText.Opacity = 1;
         SecondaryText.Opacity = 1;
-        PinButton.Opacity = 1;
     }
 
     private static TransformGroup CreateStatusTransform(

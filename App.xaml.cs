@@ -16,6 +16,7 @@ public partial class App : System.Windows.Application
     private StartupService? _startupService;
     private StatusStore? _statusStore;
     private ClockService? _clockService;
+    private ThemeService? _themeService;
     private ApiService? _apiService;
     private Task? _apiStartTask;
     private MainWindow? _mainWindow;
@@ -48,6 +49,9 @@ public partial class App : System.Windows.Application
 
         _statusStore = new StatusStore();
         _clockService = new ClockService(_statusStore);
+        _themeService = new ThemeService();
+        _themeService.ThemeChanged += ThemeService_OnChanged;
+        _themeService.Start();
         _apiService = new ApiService(_statusStore, _settingsService);
 
         _mainWindow = new MainWindow(_statusStore, _settingsService);
@@ -170,6 +174,11 @@ public partial class App : System.Windows.Application
         RunOnUi(Shutdown);
     }
 
+    private void ThemeService_OnChanged(object? sender, EventArgs e)
+    {
+        RunOnUi(() => _mainWindow?.RefreshTheme());
+    }
+
     private void MainWindow_OnPinStateChanged(object? sender, EventArgs e)
     {
         _trayService?.SetPinned(_mainWindow?.IsPinned == true);
@@ -239,6 +248,11 @@ public partial class App : System.Windows.Application
             System.Diagnostics.Debug.WriteLine($"NotchBar API shutdown failed: {exception.Message}");
         }
 
+        if (_themeService is not null)
+        {
+            _themeService.ThemeChanged -= ThemeService_OnChanged;
+            _themeService.Dispose();
+        }
         _clockService?.Dispose();
         _statusStore?.Dispose();
 

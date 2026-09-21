@@ -46,6 +46,7 @@
             <Setter Property="BorderBrush" Value="Transparent" />
             <Setter Property="BorderThickness" Value="1" />
             <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="Opacity" Value="0" />
             <Setter Property="FocusVisualStyle" Value="{x:Null}" />
             <Setter Property="Template">
                 <Setter.Value>
@@ -59,6 +60,7 @@
                         </Border>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver" Value="True">
+                                <Setter Property="Opacity" Value="1" />
                                 <Setter Property="Background" Value="{DynamicResource SurfaceHover}" />
                                 <Setter Property="BorderBrush" Value="{DynamicResource GlassEdge}" />
                             </Trigger>

@@ -67,6 +67,14 @@ public partial class MainWindow : Window, IDisposable
 
     public bool IsPinned => _stateMachine.IsPinned;
 
+    public void RefreshTheme()
+    {
+        if (!_disposed)
+        {
+            RefreshItem(applyWindowSize: false);
+        }
+    }
+
     public void ShowApiError(string message)
     {
         Debug.WriteLine($"NotchBar API failed to start: {message}");
