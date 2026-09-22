@@ -232,7 +232,13 @@ public partial class ExpandedView : UserControl
                 transformed.X - (translation?.X ?? 0),
                 transformed.Y - (translation?.Y ?? 0) - inheritedTranslationY),
             element.FontSize,
-            baselineFromTop);
+            baselineFromTop,
+            element.FontFamily,
+            element.FontStyle,
+            element.FontWeight,
+            element.FontStretch,
+            element.FlowDirection,
+            (element.Foreground as SolidColorBrush)?.Color ?? Colors.Transparent);
     }
 
     private readonly record struct TextBaselineKey(

@@ -185,7 +185,13 @@ public partial class CompactView : UserControl
                 transformed.X - translation.X,
                 transformed.Y - translation.Y),
             element.FontSize,
-            baselineFromTop);
+            baselineFromTop,
+            element.FontFamily,
+            element.FontStyle,
+            element.FontWeight,
+            element.FontStretch,
+            element.FlowDirection,
+            (element.Foreground as SolidColorBrush)?.Color ?? Colors.Transparent);
     }
 
     private readonly record struct TextBaselineKey(

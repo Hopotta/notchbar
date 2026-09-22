@@ -60,27 +60,15 @@
                 <TextBlock x:Name="ClockTitleOverlay"
                            Foreground="{DynamicResource SecondaryText}"
                            FontSize="10.5"
-                           FontWeight="SemiBold">
-                    <TextBlock.RenderTransform>
-                        <ScaleTransform x:Name="ClockTitleOverlayScale" />
-                    </TextBlock.RenderTransform>
-                </TextBlock>
+                           FontWeight="SemiBold" />
                 <TextBlock x:Name="ClockTimeOverlay"
                            Foreground="{DynamicResource PrimaryText}"
                            FontSize="13"
-                           FontWeight="SemiBold">
-                    <TextBlock.RenderTransform>
-                        <ScaleTransform x:Name="ClockTimeOverlayScale" />
-                    </TextBlock.RenderTransform>
-                </TextBlock>
+                           FontWeight="SemiBold" />
                 <TextBlock x:Name="ClockDateOverlay"
                            Foreground="{DynamicResource MutedText}"
                            FontSize="11"
-                           FontWeight="SemiBold">
-                    <TextBlock.RenderTransform>
-                        <ScaleTransform x:Name="ClockDateOverlayScale" />
-                    </TextBlock.RenderTransform>
-                </TextBlock>
+                           FontWeight="SemiBold" />
             </Canvas>
         </Grid>
     </Border>

@@ -1,4 +1,5 @@
 using System.Windows;
+using System.Windows.Media;
 using NotchBar.UI;
 using Xunit;
 using Point = System.Windows.Point;
@@ -72,7 +73,7 @@ public sealed class TransitionChoreographyTests
     }
 
     [Fact]
-    public void ClockText_UsesLeadingBaselineEndpointsAndTypographyScale()
+    public void ClockText_UsesLeadingBaselineEndpointsAndNativeTypography()
     {
         var compact = new ClockTextAnchor(new Point(250, 24), 10, 8);
         var expanded = new ClockTextAnchor(new Point(32, 34), 15, 12);
@@ -81,11 +82,72 @@ public sealed class TransitionChoreographyTests
         var atExpanded = TransitionChoreography.EvaluateSharedText(1, compact, expanded);
 
         Assert.Equal(new Point(250, 16), atCompact.TopLeft);
-        Assert.Equal(1, atCompact.Scale);
+        Assert.Equal(10, atCompact.FontSize);
+        Assert.Equal(8, atCompact.BaselineFromTop);
         Assert.Equal(new Point(32, 22), atExpanded.TopLeft);
-        Assert.Equal(1.5, atExpanded.Scale);
+        Assert.Equal(15, atExpanded.FontSize);
+        Assert.Equal(12, atExpanded.BaselineFromTop);
         Assert.Equal(1, atCompact.Opacity);
         Assert.Equal(1, atExpanded.Opacity);
+    }
+
+    [Fact]
+    public void ClockTime_MidpointUsesNativeInterpolatedFontAndStableBaseline()
+    {
+        var compact = new ClockTextAnchor(new Point(210, 21), 13, 9.5);
+        var expanded = new ClockTextAnchor(new Point(32, 43), 17, 12.5);
+
+        var midpoint = TransitionChoreography.EvaluateSharedText(0.5, compact, expanded);
+
+        Assert.Equal(15, midpoint.FontSize, 10);
+        Assert.Equal(11, midpoint.BaselineFromTop, 10);
+        Assert.Equal(midpoint.LeadingBaseline.Y - midpoint.BaselineFromTop, midpoint.TopLeft.Y, 10);
+    }
+
+    [Fact]
+    public void ClockText_InterpolatesForegroundAndCarriesMatchingTypeface()
+    {
+        var family = new FontFamily("Segoe UI");
+        var compact = new ClockTextAnchor(
+            new Point(210, 21),
+            11,
+            8,
+            family,
+            FontStyles.Normal,
+            FontWeights.SemiBold,
+            FontStretches.Normal,
+            FlowDirection.LeftToRight,
+            Color.FromArgb(255, 80, 96, 112));
+        var expanded = compact with
+        {
+            LeadingBaseline = new Point(28, 38),
+            FontSize = 13.5,
+            BaselineFromTop = 9.8,
+            ForegroundColor = Color.FromArgb(255, 240, 244, 248)
+        };
+
+        var midpoint = TransitionChoreography.EvaluateSharedText(0.5, compact, expanded);
+
+        Assert.True(TransitionChoreography.HasCompatibleTypeface(compact, expanded));
+        Assert.Equal("Segoe UI", midpoint.FontFamily?.Source);
+        Assert.Equal(FontWeights.SemiBold, midpoint.FontWeight);
+        Assert.Equal(Color.FromArgb(255, 160, 170, 180), midpoint.ForegroundColor);
+    }
+
+    [Fact]
+    public void ClockText_DetectsTypefaceMismatchBeforeOverlayOwnership()
+    {
+        var compact = new ClockTextAnchor(
+            new Point(210, 21),
+            11,
+            8,
+            new FontFamily("Segoe UI"),
+            FontStyles.Normal,
+            FontWeights.SemiBold,
+            FontStretches.Normal);
+        var expanded = compact with { FontWeight = FontWeights.Bold };
+
+        Assert.False(TransitionChoreography.HasCompatibleTypeface(compact, expanded));
     }
 
     [Fact]
@@ -164,6 +226,10 @@ public sealed class TransitionChoreographyTests
 
         Assert.Equal(compact.LeadingBaseline, atCompact.LeadingBaseline);
         Assert.Equal(expanded.LeadingBaseline, atExpanded.LeadingBaseline);
+        Assert.Equal(compact.FontSize, atCompact.FontSize);
+        Assert.Equal(expanded.FontSize, atExpanded.FontSize);
+        Assert.Equal(compact.BaselineFromTop, atCompact.BaselineFromTop);
+        Assert.Equal(expanded.BaselineFromTop, atExpanded.BaselineFromTop);
         Assert.True(midpoint.LeadingBaseline.Y > linearMidpointY);
         Assert.InRange(
             midpoint.LeadingBaseline.Y,

@@ -21,6 +21,9 @@ public partial class MainWindow : Window, IDisposable
     private readonly NotchStateMachine _stateMachine = new();
     private readonly TranslateTransform _compactContentTranslate = new();
     private readonly TranslateTransform _expandedContentTranslate = new();
+    private readonly SolidColorBrush _clockTitleOverlayBrush = new(Colors.Transparent);
+    private readonly SolidColorBrush _clockTimeOverlayBrush = new(Colors.Transparent);
+    private readonly SolidColorBrush _clockDateOverlayBrush = new(Colors.Transparent);
     private readonly MonitorPlacementService _monitorPlacementService;
     private readonly WindowController _windowController;
     private readonly WindowBlurService _windowBlurService;
@@ -42,6 +45,9 @@ public partial class MainWindow : Window, IDisposable
 
         CompactContent.RenderTransform = _compactContentTranslate;
         ExpandedContent.RenderTransform = _expandedContentTranslate;
+        ClockTitleOverlay.Foreground = _clockTitleOverlayBrush;
+        ClockTimeOverlay.Foreground = _clockTimeOverlayBrush;
+        ClockDateOverlay.Foreground = _clockDateOverlayBrush;
 
         _monitorPlacementService = new MonitorPlacementService(_settings.MonitorMode);
         _windowController = new WindowController(this, _monitorPlacementService.Current);
@@ -428,7 +434,8 @@ public partial class MainWindow : Window, IDisposable
             compactClockAnchors = CompactContent.CaptureClockTextAnchors(ContentRoot);
             expandedClockAnchors = ExpandedContent.CaptureClockTextAnchors(ContentRoot);
             clockOverlayOwnsText = AreClockAnchorsUsable(compactClockAnchors) &&
-                AreClockAnchorsUsable(expandedClockAnchors);
+                AreClockAnchorsUsable(expandedClockAnchors) &&
+                AreClockTypefacesCompatible(compactClockAnchors, expandedClockAnchors);
         }
 
         CompactContent.ApplyTransition(
@@ -568,20 +575,53 @@ public partial class MainWindow : Window, IDisposable
             expandedAnchors.Date);
 
         ClockTransitionOverlay.Visibility = Visibility.Visible;
-        ApplyClockTextPlacement(ClockTitleOverlay, ClockTitleOverlayScale, title);
-        ApplyClockTextPlacement(ClockTimeOverlay, ClockTimeOverlayScale, time);
-        ApplyClockTextPlacement(ClockDateOverlay, ClockDateOverlayScale, date);
+        ApplyClockTextPlacement(ClockTitleOverlay, _clockTitleOverlayBrush, title);
+        ApplyClockTextPlacement(ClockTimeOverlay, _clockTimeOverlayBrush, time);
+        ApplyClockTextPlacement(ClockDateOverlay, _clockDateOverlayBrush, date);
     }
 
     private static void ApplyClockTextPlacement(
         TextBlock element,
-        ScaleTransform scale,
+        SolidColorBrush foreground,
         ClockTextPlacement placement)
     {
+        if (placement.FontFamily is not null &&
+            !string.Equals(
+                element.FontFamily.Source,
+                placement.FontFamily.Source,
+                StringComparison.OrdinalIgnoreCase))
+        {
+            element.FontFamily = placement.FontFamily;
+        }
+
+        if (element.FontStyle != placement.FontStyle)
+        {
+            element.FontStyle = placement.FontStyle;
+        }
+
+        if (element.FontWeight != placement.FontWeight)
+        {
+            element.FontWeight = placement.FontWeight;
+        }
+
+        if (element.FontStretch != placement.FontStretch)
+        {
+            element.FontStretch = placement.FontStretch;
+        }
+
+        if (element.FlowDirection != placement.FlowDirection)
+        {
+            element.FlowDirection = placement.FlowDirection;
+        }
+
+        element.FontSize = placement.FontSize;
+        if (foreground.Color != placement.ForegroundColor)
+        {
+            foreground.Color = placement.ForegroundColor;
+        }
+
         Canvas.SetLeft(element, placement.TopLeft.X);
         Canvas.SetTop(element, placement.TopLeft.Y);
-        scale.ScaleX = placement.Scale;
-        scale.ScaleY = placement.Scale;
         element.Opacity = placement.Opacity;
     }
 
@@ -598,13 +638,21 @@ public partial class MainWindow : Window, IDisposable
         IsClockAnchorUsable(anchors.Time) &&
         IsClockAnchorUsable(anchors.Date);
 
+    private static bool AreClockTypefacesCompatible(
+        ClockTextAnchors compact,
+        ClockTextAnchors expanded) =>
+        TransitionChoreography.HasCompatibleTypeface(compact.Title, expanded.Title) &&
+        TransitionChoreography.HasCompatibleTypeface(compact.Time, expanded.Time) &&
+        TransitionChoreography.HasCompatibleTypeface(compact.Date, expanded.Date);
+
     private static bool IsClockAnchorUsable(ClockTextAnchor anchor) =>
         double.IsFinite(anchor.LeadingBaseline.X) &&
         double.IsFinite(anchor.LeadingBaseline.Y) &&
         double.IsFinite(anchor.FontSize) &&
         anchor.FontSize > 0 &&
         double.IsFinite(anchor.BaselineFromTop) &&
-        anchor.BaselineFromTop > 0;
+        anchor.BaselineFromTop > 0 &&
+        anchor.FontFamily is not null;
 
     private void TryRunPendingItemTransition()
     {

@@ -1,4 +1,10 @@
 using System.Windows;
+using MediaColor = System.Windows.Media.Color;
+using MediaFontFamily = System.Windows.Media.FontFamily;
+using WindowsFlowDirection = System.Windows.FlowDirection;
+using WindowsFontStretch = System.Windows.FontStretch;
+using WindowsFontStyle = System.Windows.FontStyle;
+using WindowsFontWeight = System.Windows.FontWeight;
 using Point = System.Windows.Point;
 using Vector = System.Windows.Vector;
 
@@ -83,23 +89,52 @@ public static class TransitionChoreography
         ClockTextAnchor expanded,
         double horizontalProgress,
         double verticalProgress,
-        double scaleProgress,
+        double typographyProgress,
         double verticalDetachment)
     {
-        var scale = Lerp(
-            1d,
-            expanded.FontSize / Math.Max(double.Epsilon, compact.FontSize),
-            Math.Clamp(scaleProgress, 0d, 1d));
+        typographyProgress = Math.Clamp(typographyProgress, 0d, 1d);
+        var fontSize = Lerp(compact.FontSize, expanded.FontSize, typographyProgress);
+        var baselineFromTop = Lerp(
+            compact.BaselineFromTop,
+            expanded.BaselineFromTop,
+            typographyProgress);
         var leadingBaseline = new Point(
             Lerp(compact.LeadingBaseline.X, expanded.LeadingBaseline.X, horizontalProgress),
             Lerp(compact.LeadingBaseline.Y, expanded.LeadingBaseline.Y, verticalProgress) +
             verticalDetachment);
         var topLeft = new Point(
             leadingBaseline.X,
-            leadingBaseline.Y - (compact.BaselineFromTop * scale));
+            leadingBaseline.Y - baselineFromTop);
 
-        return new ClockTextPlacement(topLeft, leadingBaseline, scale, Opacity: 1d);
+        // Typeface properties are discrete in WPF. Clock overlay ownership is
+        // only enabled for matching endpoint typefaces, so carrying the
+        // expanded value at the exact endpoint is lossless without a mid-path
+        // weight/style switch. Font size and color remain continuous.
+        var typography = typographyProgress >= 1d ? expanded : compact;
+
+        return new ClockTextPlacement(
+            topLeft,
+            leadingBaseline,
+            fontSize,
+            baselineFromTop,
+            typography.FontFamily,
+            typography.FontStyle,
+            typography.FontWeight,
+            typography.FontStretch,
+            typography.FlowDirection,
+            Lerp(compact.ForegroundColor, expanded.ForegroundColor, typographyProgress),
+            Opacity: 1d);
     }
+
+    public static bool HasCompatibleTypeface(ClockTextAnchor compact, ClockTextAnchor expanded) =>
+        string.Equals(
+            compact.FontFamily?.Source,
+            expanded.FontFamily?.Source,
+            StringComparison.OrdinalIgnoreCase) &&
+        compact.FontStyle == expanded.FontStyle &&
+        compact.FontWeight == expanded.FontWeight &&
+        compact.FontStretch == expanded.FontStretch &&
+        compact.FlowDirection == expanded.FlowDirection;
 
     private static double Normalize(double value, double start, double end) =>
         Math.Clamp((value - start) / (end - start), 0d, 1d);
@@ -108,6 +143,18 @@ public static class TransitionChoreography
 
     private static double Lerp(double start, double end, double progress) =>
         start + ((end - start) * progress);
+
+    private static MediaColor Lerp(MediaColor start, MediaColor end, double progress) => MediaColor.FromArgb(
+        Lerp(start.A, end.A, progress),
+        Lerp(start.R, end.R, progress),
+        Lerp(start.G, end.G, progress),
+        Lerp(start.B, end.B, progress));
+
+    private static byte Lerp(byte start, byte end, double progress) =>
+        (byte)Math.Clamp(
+            Math.Round(Lerp((double)start, end, progress), MidpointRounding.AwayFromZero),
+            byte.MinValue,
+            byte.MaxValue);
 }
 
 public readonly record struct TransitionChoreographyFrame(
@@ -145,7 +192,13 @@ public readonly record struct SharedElementOffsets(
 public readonly record struct ClockTextAnchor(
     Point LeadingBaseline,
     double FontSize,
-    double BaselineFromTop);
+    double BaselineFromTop,
+    MediaFontFamily? FontFamily = null,
+    WindowsFontStyle FontStyle = default,
+    WindowsFontWeight FontWeight = default,
+    WindowsFontStretch FontStretch = default,
+    WindowsFlowDirection FlowDirection = WindowsFlowDirection.LeftToRight,
+    MediaColor ForegroundColor = default);
 
 public readonly record struct ClockTextAnchors(
     ClockTextAnchor Title,
@@ -155,5 +208,12 @@ public readonly record struct ClockTextAnchors(
 public readonly record struct ClockTextPlacement(
     Point TopLeft,
     Point LeadingBaseline,
-    double Scale,
+    double FontSize,
+    double BaselineFromTop,
+    MediaFontFamily? FontFamily,
+    WindowsFontStyle FontStyle,
+    WindowsFontWeight FontWeight,
+    WindowsFontStretch FontStretch,
+    WindowsFlowDirection FlowDirection,
+    MediaColor ForegroundColor,
     double Opacity);
