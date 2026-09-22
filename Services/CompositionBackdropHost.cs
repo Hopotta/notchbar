@@ -53,7 +53,6 @@ public sealed class CompositionBackdropHost : IDisposable
     private CompositionSurfaceBrush? _maskSurfaceBrush;
     private LoadedImageSurface? _maskSurface;
     private InMemoryRandomAccessStream? _maskStream;
-    private TypedEventHandler<LoadedImageSurface, LoadedImageSourceLoadCompletedEventArgs>? _maskLoadHandler;
     private int _generation;
     private bool _samplingEnabled;
     private bool _proofCommitCompleted;
@@ -337,37 +336,23 @@ public sealed class CompositionBackdropHost : IDisposable
 
         _maskStream.Seek(0);
         _maskSurface = LoadedImageSurface.StartLoadFromStream(_maskStream);
-        _maskLoadHandler = (surface, args) =>
+        TypedEventHandler<LoadedImageSurface, LoadedImageSourceLoadCompletedEventArgs>? handler = null;
+        handler = (surface, args) =>
         {
-            var status = args.Status;
-            if (_maskLoadHandler is not null)
-            {
-                surface.LoadCompleted -= _maskLoadHandler;
-                _maskLoadHandler = null;
-            }
-
+            surface.LoadCompleted -= handler;
             _ = _dispatcher.BeginInvoke(new Action(() =>
             {
-                try
+                if (args.Status == LoadedImageSourceLoadStatus.Success)
                 {
-                    if (status == LoadedImageSourceLoadStatus.Success)
-                    {
-                        AttachMaskedTree(generation);
-                    }
-                    else
-                    {
-                        FailInitialization(generation);
-                    }
+                    AttachMaskedTree(generation);
                 }
-                catch (Exception exception)
+                else
                 {
-                    System.Diagnostics.Debug.WriteLine(
-                        $"NotchBar composition mask attachment failed: {exception}");
                     FailInitialization(generation);
                 }
             }));
         };
-        _maskSurface.LoadCompleted += _maskLoadHandler;
+        _maskSurface.LoadCompleted += handler;
     }
 
     private void AttachMaskedTree(int generation)
@@ -446,12 +431,6 @@ public sealed class CompositionBackdropHost : IDisposable
         if (_target is not null)
         {
             _target.Root = null;
-        }
-
-        if (_maskSurface is not null && _maskLoadHandler is not null)
-        {
-            _maskSurface.LoadCompleted -= _maskLoadHandler;
-            _maskLoadHandler = null;
         }
 
         (_maskSurface as IDisposable)?.Dispose();
