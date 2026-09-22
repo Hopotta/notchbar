@@ -58,7 +58,6 @@ public partial class MainWindow : Window, IDisposable
         _monitorPlacementService = new MonitorPlacementService(_settings.MonitorMode);
         _windowController = new WindowController(this, _monitorPlacementService.Current);
         _windowBlurService = new WindowBlurService(this);
-        _windowBlurService.AvailabilityChanged += WindowBlurService_OnAvailabilityChanged;
         _autoHideService = new AutoHideService(_stateMachine, _settings.AutoHideDelay);
         if (_settings.HideInFullscreen)
         {
@@ -188,16 +187,6 @@ public partial class MainWindow : Window, IDisposable
         IslandBorder.SetResourceReference(
             Border.BackgroundProperty,
             backdropActive ? "IslandBackground" : "IslandFallbackBackground");
-    }
-
-    private void WindowBlurService_OnAvailabilityChanged(
-        object? sender,
-        BackdropAvailabilityChangedEventArgs e)
-    {
-        if (!_disposed && !Dispatcher.HasShutdownStarted)
-        {
-            ApplyBackdropVisual(e.IsActive);
-        }
     }
 
 
@@ -930,7 +919,6 @@ public partial class MainWindow : Window, IDisposable
         _stateMachine.StateChanged -= StateMachine_OnStateChanged;
         _monitorPlacementService.Changed -= MonitorPlacementService_OnChanged;
         _windowController.MotionFrameChanged -= WindowController_OnMotionFrameChanged;
-        _windowBlurService.AvailabilityChanged -= WindowBlurService_OnAvailabilityChanged;
         CompactContent.PinClicked -= Pin_OnClicked;
         ExpandedContent.PinClicked -= Pin_OnClicked;
         ExpandedContent.CollapseRequested -= ExpandedContent_OnCollapseRequested;
