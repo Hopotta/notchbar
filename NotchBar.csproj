@@ -18,7 +18,4 @@
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
   </ItemGroup>
 
-  <ItemGroup>
-    <InternalsVisibleTo Include="NotchBar.Tests" />
-  </ItemGroup>
 </Project>
