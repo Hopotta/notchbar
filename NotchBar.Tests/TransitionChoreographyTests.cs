@@ -249,4 +249,32 @@ public sealed class TransitionChoreographyTests
 
         Assert.Equal(first, reversed);
     }
+
+    [Fact]
+    public void EndpointPlacement_UsesExactTargetTypographyAndMeasuredBaseline()
+    {
+        var target = new ClockTextAnchor(
+            new Point(37.25, 81.875),
+            13.5,
+            9.8125,
+            new FontFamily("Segoe UI"),
+            FontStyles.Italic,
+            FontWeights.SemiBold,
+            FontStretches.Condensed,
+            FlowDirection.RightToLeft,
+            Color.FromArgb(255, 201, 211, 221));
+
+        var placement = TransitionChoreography.PlaceAtEndpoint(target);
+
+        Assert.Equal(target.LeadingBaseline, placement.LeadingBaseline);
+        Assert.Equal(target.LeadingBaseline.Y - target.BaselineFromTop, placement.TopLeft.Y);
+        Assert.Equal(target.FontSize, placement.FontSize);
+        Assert.Equal(target.BaselineFromTop, placement.BaselineFromTop);
+        Assert.Equal(target.FontFamily, placement.FontFamily);
+        Assert.Equal(target.FontStyle, placement.FontStyle);
+        Assert.Equal(target.FontWeight, placement.FontWeight);
+        Assert.Equal(target.FontStretch, placement.FontStretch);
+        Assert.Equal(target.FlowDirection, placement.FlowDirection);
+        Assert.Equal(target.ForegroundColor, placement.ForegroundColor);
+    }
 }

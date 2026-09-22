@@ -84,6 +84,26 @@ public static class TransitionChoreography
             detachment);
     }
 
+    /// <summary>
+    /// Places the overlay from the fully arranged target TextBlock metrics.
+    /// Unlike motion interpolation this is exact by construction and is used
+    /// only while ownership is transferred at an endpoint.
+    /// </summary>
+    public static ClockTextPlacement PlaceAtEndpoint(ClockTextAnchor target) => new(
+        new Point(
+            target.LeadingBaseline.X,
+            target.LeadingBaseline.Y - target.BaselineFromTop),
+        target.LeadingBaseline,
+        target.FontSize,
+        target.BaselineFromTop,
+        target.FontFamily,
+        target.FontStyle,
+        target.FontWeight,
+        target.FontStretch,
+        target.FlowDirection,
+        target.ForegroundColor,
+        Opacity: 1d);
+
     private static ClockTextPlacement PlaceText(
         ClockTextAnchor compact,
         ClockTextAnchor expanded,

@@ -125,18 +125,32 @@ public partial class ExpandedView : UserControl
             _titleTranslate,
             ancestor,
             0,
+            false,
             ref _titleBaselineMetrics),
         CaptureTextAnchor(
             SummaryText,
             _summaryTranslate,
             ancestor,
             0,
+            false,
             ref _summaryBaselineMetrics),
         CaptureTextAnchor(
             SimpleSecondaryText,
             null,
             ancestor,
             BodyMotionTranslate.Y,
+            false,
+            ref _secondaryBaselineMetrics));
+
+    public ClockTextAnchors CaptureFinalClockTextAnchors(UIElement ancestor) => new(
+        CaptureTextAnchor(TitleText, _titleTranslate, ancestor, 0, true, ref _titleBaselineMetrics),
+        CaptureTextAnchor(SummaryText, _summaryTranslate, ancestor, 0, true, ref _summaryBaselineMetrics),
+        CaptureTextAnchor(
+            SimpleSecondaryText,
+            null,
+            ancestor,
+            BodyMotionTranslate.Y,
+            true,
             ref _secondaryBaselineMetrics));
 
     public void ApplyTransition(
@@ -187,6 +201,7 @@ public partial class ExpandedView : UserControl
         TranslateTransform? translation,
         UIElement ancestor,
         double inheritedTranslationY,
+        bool preferArrangedBaseline,
         ref TextBaselineMetrics? baselineMetrics)
     {
         var dpi = VisualTreeHelper.GetDpi(element);
@@ -219,7 +234,11 @@ public partial class ExpandedView : UserControl
             baselineMetrics = metrics;
         }
 
-        var baselineFromTop = metrics.BaselineFromTop;
+        var baselineFromTop = preferArrangedBaseline &&
+            double.IsFinite(element.BaselineOffset) &&
+            element.BaselineOffset > 0
+                ? element.BaselineOffset
+                : metrics.BaselineFromTop;
         var leadingX = element.FlowDirection == System.Windows.FlowDirection.RightToLeft
             ? element.ActualWidth
             : 0d;

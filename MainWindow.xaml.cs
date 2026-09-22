@@ -4,6 +4,7 @@ using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
+using System.Windows.Threading;
 using NotchBar.Core;
 using NotchBar.Services;
 using NotchBar.UI;
@@ -24,6 +25,7 @@ public partial class MainWindow : Window, IDisposable
     private readonly SolidColorBrush _clockTitleOverlayBrush = new(Colors.Transparent);
     private readonly SolidColorBrush _clockTimeOverlayBrush = new(Colors.Transparent);
     private readonly SolidColorBrush _clockDateOverlayBrush = new(Colors.Transparent);
+    private readonly ClockOverlayHandoff _clockOverlayHandoff = new();
     private readonly MonitorPlacementService _monitorPlacementService;
     private readonly WindowController _windowController;
     private readonly WindowBlurService _windowBlurService;
@@ -35,6 +37,10 @@ public partial class MainWindow : Window, IDisposable
     private bool _contentMorphPrepared;
     private bool _displayedItemIsClock;
     private bool _isFullscreenSuppressed;
+    private DispatcherOperation? _clockOverlayLayoutOperation;
+    private bool _clockOverlayRenderingSubscribed;
+    private long _clockOverlayRenderingGeneration;
+    private NotchState _clockOverlaySettledState = NotchState.Compact;
     private bool _disposed;
 
     public MainWindow(StatusStore statusStore, SettingsService settings)
@@ -67,6 +73,7 @@ public partial class MainWindow : Window, IDisposable
         CompactContent.PinClicked += Pin_OnClicked;
         ExpandedContent.PinClicked += Pin_OnClicked;
         ExpandedContent.CollapseRequested += ExpandedContent_OnCollapseRequested;
+        DpiChanged += MainWindow_OnDpiChanged;
 
         RefreshItem();
         ApplyVisualState(_stateMachine.Current);
@@ -80,6 +87,7 @@ public partial class MainWindow : Window, IDisposable
     {
         if (!_disposed)
         {
+            InvalidateClockOverlayForContentChange();
             ApplyBackdropVisual(_windowBlurService.RefreshTheme());
             RefreshItem(applyWindowSize: false);
         }
@@ -331,6 +339,16 @@ public partial class MainWindow : Window, IDisposable
         }
 
         var visualState = _stateMachine.VisualState;
+        if (!_isFullscreenSuppressed &&
+            _clockOverlayHandoff.State is
+                ClockOverlayHandoffState.AwaitingLayout or
+                ClockOverlayHandoffState.EndpointArmed or
+                ClockOverlayHandoffState.EndpointFrameObserved or
+                ClockOverlayHandoffState.Release)
+        {
+            ResumeClockOverlayMotion();
+        }
+
         HiddenTrigger.Visibility = !_isFullscreenSuppressed && state == NotchState.Hidden
             ? Visibility.Visible
             : Visibility.Collapsed;
@@ -384,6 +402,14 @@ public partial class MainWindow : Window, IDisposable
         }
 
         var frame = e.Frame;
+        var isSettledEndpoint = !e.IsTransitionActive &&
+            frame.IsSettled &&
+            frame.TargetState is NotchState.Compact or NotchState.Expanded or NotchState.Pinned;
+        if (!isSettledEndpoint)
+        {
+            ResumeClockOverlayMotion();
+        }
+
         if (frame.ExpansionProgress > 0.001 ||
             frame.TargetState is NotchState.Expanded or NotchState.Pinned)
         {
@@ -400,8 +426,18 @@ public partial class MainWindow : Window, IDisposable
             var settledState = frame.TargetState is NotchState.Expanded or NotchState.Pinned
                 ? NotchState.Expanded
                 : NotchState.Compact;
-            SetContentStateImmediate(settledState);
-            TryRunPendingItemTransition();
+            if (frame.TargetState == NotchState.Hidden ||
+                !_displayedItemIsClock ||
+                _clockOverlayHandoff.State != ClockOverlayHandoffState.Moving ||
+                ClockTransitionOverlay.Visibility != Visibility.Visible)
+            {
+                SetContentStateImmediate(settledState);
+                TryRunPendingItemTransition();
+            }
+            else
+            {
+                BeginClockOverlayEndpointHandoff(settledState);
+            }
         }
     }
 
@@ -473,6 +509,7 @@ public partial class MainWindow : Window, IDisposable
 
     private void SetContentStateImmediate(NotchState visualState)
     {
+        CancelClockOverlayHandoff(continueMoving: false);
         _contentMorphPrepared = false;
         ResetClockOverlayOwnership();
         CompactHost.Opacity = 1;
@@ -502,6 +539,7 @@ public partial class MainWindow : Window, IDisposable
             return;
         }
 
+        InvalidateClockOverlayForContentChange();
         RefreshItem();
         if (e.WakeOnUpdate && !_stateMachine.IsPinned && !_isFullscreenSuppressed)
         {
@@ -644,6 +682,164 @@ public partial class MainWindow : Window, IDisposable
         ClockDateOverlay.Opacity = 1;
     }
 
+    private void BeginClockOverlayEndpointHandoff(NotchState settledState)
+    {
+        var endpoint = settledState == NotchState.Expanded
+            ? ClockOverlayEndpoint.Expanded
+            : ClockOverlayEndpoint.Compact;
+        if (_clockOverlayHandoff.IsFinalizingEndpoint(endpoint))
+        {
+            return;
+        }
+
+        CancelClockOverlayCallbacks();
+        _clockOverlaySettledState = settledState;
+        var generation = _clockOverlayHandoff.BeginAwaitingLayout(endpoint);
+        _clockOverlayLayoutOperation = Dispatcher.BeginInvoke(
+            DispatcherPriority.Render,
+            new Action(() => ArmClockOverlayEndpoint(generation, endpoint)));
+    }
+
+    private void ArmClockOverlayEndpoint(long generation, ClockOverlayEndpoint endpoint)
+    {
+        _clockOverlayLayoutOperation = null;
+        if (_disposed ||
+            _clockOverlayHandoff.Generation != generation ||
+            _clockOverlayHandoff.State != ClockOverlayHandoffState.AwaitingLayout)
+        {
+            return;
+        }
+
+        PrepareContentMorph();
+        ApplyContentMorphFrame(endpoint == ClockOverlayEndpoint.Expanded ? 1d : 0d);
+        ContentRoot.UpdateLayout();
+
+        var anchors = endpoint == ClockOverlayEndpoint.Expanded
+            ? ExpandedContent.CaptureFinalClockTextAnchors(ContentRoot)
+            : CompactContent.CaptureFinalClockTextAnchors(ContentRoot);
+        if (!AreClockAnchorsUsable(anchors))
+        {
+            SetContentStateImmediate(_clockOverlaySettledState);
+            TryRunPendingItemTransition();
+            return;
+        }
+
+        ApplyClockEndpointOverlay(anchors);
+        ClockTransitionOverlay.UpdateLayout();
+        if (!_clockOverlayHandoff.TryArmEndpoint(generation))
+        {
+            return;
+        }
+
+        _clockOverlayRenderingGeneration = generation;
+        CompositionTarget.Rendering += ClockOverlay_OnRendering;
+        _clockOverlayRenderingSubscribed = true;
+    }
+
+    private void ApplyClockEndpointOverlay(ClockTextAnchors anchors)
+    {
+        ClockTransitionOverlay.Visibility = Visibility.Visible;
+        ApplyClockTextPlacement(
+            ClockTitleOverlay,
+            _clockTitleOverlayBrush,
+            TransitionChoreography.PlaceAtEndpoint(anchors.Title));
+        ApplyClockTextPlacement(
+            ClockTimeOverlay,
+            _clockTimeOverlayBrush,
+            TransitionChoreography.PlaceAtEndpoint(anchors.Time));
+        ApplyClockTextPlacement(
+            ClockDateOverlay,
+            _clockDateOverlayBrush,
+            TransitionChoreography.PlaceAtEndpoint(anchors.Date));
+    }
+
+    private void ClockOverlay_OnRendering(object? sender, EventArgs e)
+    {
+        var generation = _clockOverlayRenderingGeneration;
+        var action = _clockOverlayHandoff.ObserveRendering(generation);
+        if (action != ClockOverlayRenderAction.ReleaseOverlay)
+        {
+            return;
+        }
+
+        CancelClockOverlayCallbacks();
+        if (!_clockOverlayHandoff.CompleteRelease(generation))
+        {
+            return;
+        }
+
+        SetContentStateImmediate(_clockOverlaySettledState);
+        TryRunPendingItemTransition();
+    }
+
+    private void ResumeClockOverlayMotion()
+    {
+        CancelClockOverlayCallbacks();
+        _clockOverlayHandoff.BeginMotion();
+    }
+
+    private void CancelClockOverlayHandoff(bool continueMoving)
+    {
+        CancelClockOverlayCallbacks();
+        _clockOverlayHandoff.Cancel(continueMoving);
+    }
+
+    private void InvalidateClockOverlayForContentChange()
+    {
+        if (_clockOverlayHandoff.State is not (
+                ClockOverlayHandoffState.AwaitingLayout or
+                ClockOverlayHandoffState.EndpointArmed or
+                ClockOverlayHandoffState.EndpointFrameObserved or
+                ClockOverlayHandoffState.Release))
+        {
+            return;
+        }
+
+        var continueMoving = _windowController.IsTransitionActive;
+        CancelClockOverlayHandoff(continueMoving);
+        _contentMorphPrepared = false;
+        if (!continueMoving)
+        {
+            SetContentStateImmediate(_stateMachine.VisualState == NotchState.Expanded
+                ? NotchState.Expanded
+                : NotchState.Compact);
+        }
+    }
+
+    private void CancelClockOverlayCallbacks()
+    {
+        _clockOverlayLayoutOperation?.Abort();
+        _clockOverlayLayoutOperation = null;
+        if (_clockOverlayRenderingSubscribed)
+        {
+            CompositionTarget.Rendering -= ClockOverlay_OnRendering;
+            _clockOverlayRenderingSubscribed = false;
+        }
+    }
+
+    private void MainWindow_OnDpiChanged(object sender, System.Windows.DpiChangedEventArgs e)
+    {
+        if (_disposed)
+        {
+            return;
+        }
+
+        var continueMoving = _windowController.IsTransitionActive;
+        CancelClockOverlayHandoff(continueMoving);
+        _contentMorphPrepared = false;
+        if (continueMoving)
+        {
+            PrepareContentMorph();
+            ApplyContentMorphFrame(_windowController.CurrentFrame.ExpansionProgress);
+        }
+        else
+        {
+            SetContentStateImmediate(_stateMachine.VisualState == NotchState.Expanded
+                ? NotchState.Expanded
+                : NotchState.Compact);
+        }
+    }
+
     private static bool AreClockAnchorsUsable(ClockTextAnchors anchors) =>
         IsClockAnchorUsable(anchors.Title) &&
         IsClockAnchorUsable(anchors.Time) &&
@@ -728,6 +924,7 @@ public partial class MainWindow : Window, IDisposable
 
         _disposed = true;
         _contentMorphPrepared = false;
+        CancelClockOverlayHandoff(continueMoving: false);
         ResetClockOverlayOwnership();
         _statusStore.Changed -= StatusStore_OnChanged;
         _stateMachine.StateChanged -= StateMachine_OnStateChanged;
@@ -737,6 +934,7 @@ public partial class MainWindow : Window, IDisposable
         CompactContent.PinClicked -= Pin_OnClicked;
         ExpandedContent.PinClicked -= Pin_OnClicked;
         ExpandedContent.CollapseRequested -= ExpandedContent_OnCollapseRequested;
+        DpiChanged -= MainWindow_OnDpiChanged;
         _hotkeyService.Pressed -= HotkeyService_OnPressed;
         _hotkeyService.RegistrationFailed -= HotkeyService_OnRegistrationFailed;
         _hotkeyService.Dispose();
