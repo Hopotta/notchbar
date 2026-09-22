@@ -73,6 +73,7 @@ public partial class MainWindow : Window, IDisposable
     {
         if (!_disposed)
         {
+            ApplyBackdropVisual(_windowBlurService.RefreshTheme());
             RefreshItem(applyWindowSize: false);
         }
     }
@@ -158,13 +159,20 @@ public partial class MainWindow : Window, IDisposable
         }
 
         _windowController.Attach();
-        _windowBlurService.TryApply();
+        ApplyBackdropVisual(_windowBlurService.TryApply());
 
         _monitorPlacementService.Start();
         _hotkeyService.Pressed += HotkeyService_OnPressed;
         _hotkeyService.RegistrationFailed += HotkeyService_OnRegistrationFailed;
         _hotkeyService.Attach(this, _settings.HotkeyModifiers, _settings.HotkeyKey);
         _fullscreenSuppressionService?.Start();
+    }
+
+    private void ApplyBackdropVisual(bool backdropActive)
+    {
+        IslandBorder.SetResourceReference(
+            Border.BackgroundProperty,
+            backdropActive ? "IslandBackground" : "IslandFallbackBackground");
     }
 
 

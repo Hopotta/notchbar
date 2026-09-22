@@ -1,39 +1,40 @@
 using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Interop;
-using System.Windows.Threading;
+using System.Windows.Media;
+using MediaColor = System.Windows.Media.Color;
 
 namespace NotchBar.Services;
 
 /// <summary>
-/// Applies a bounded DWM blur region while leaving the visible rounded
-/// silhouette to WPF, whose vector rendering provides smoother anti-aliased
-/// corners than a pixel-based window region.
+/// Installs a compositor-owned backdrop for the lifetime of the window. The
+/// current WPF window is layered (<see cref="Window.AllowsTransparency"/>), so
+/// Accent acrylic is used on Windows 10 and 11; DWM system backdrops are kept
+/// only for a future non-layered window where they are supported.
 /// </summary>
 public sealed class WindowBlurService : IDisposable
 {
-    private const uint DwmBbEnable = 0x00000001;
-    private const uint DwmBbBlurRegion = 0x00000002;
     private const uint DwmNcRenderingPolicy = 6;
     private const uint DwmWindowCornerPreference = 33;
+    private const uint DwmSystemBackdropType = 38;
     private const int DwmNcRenderingDisabled = 2;
     private const int DwmCornerDoNotRound = 1;
-    private const int RegionOr = 2;
+    private const int DwmSystemBackdropNone = 1;
+    private const int DwmSystemBackdropTransientWindow = 3;
+    private const int WindowCompositionAttributeAccentPolicy = 19;
+    private const byte AccentTintAlpha = 0x1C;
 
     private readonly Window _window;
     private IntPtr _hwnd;
-    private IntPtr _blurRegion;
-    private DispatcherOperation? _pendingRegionUpdate;
-    private int _appliedClientWidth = -1;
-    private int _appliedClientHeight = -1;
-    private uint _appliedDpi;
-    private bool _isApplied;
+    private WindowBackdropMode _mode;
     private bool _disposed;
 
     public WindowBlurService(Window window)
     {
         _window = window;
     }
+
+    public bool IsActive => _mode is not WindowBackdropMode.Fallback;
 
     public bool TryApply()
     {
@@ -42,16 +43,15 @@ public sealed class WindowBlurService : IDisposable
             return false;
         }
 
-        if (_isApplied)
+        if (IsActive)
         {
-            QueueBackdropRegionUpdate();
             return true;
         }
 
         try
         {
             _hwnd = new WindowInteropHelper(_window).Handle;
-            if (_hwnd == IntPtr.Zero)
+            if (_hwnd == IntPtr.Zero || !IsCompositionEnabled())
             {
                 return false;
             }
@@ -59,209 +59,196 @@ public sealed class WindowBlurService : IDisposable
             SetWindowAttribute(DwmNcRenderingPolicy, DwmNcRenderingDisabled);
             SetWindowAttribute(DwmWindowCornerPreference, DwmCornerDoNotRound);
 
-            // Apply the initial region synchronously so the first presented
-            // frame already has the correct glass silhouette.
-            UpdateBackdropRegion();
-            _window.SizeChanged += Window_OnSizeChanged;
-            _window.DpiChanged += Window_OnDpiChanged;
-            _isApplied = true;
-            return true;
-        }
-        catch (DllNotFoundException)
-        {
-            return false;
-        }
-        catch (EntryPointNotFoundException)
-        {
-            return false;
-        }
-    }
+            var requestedMode = SelectBackdropMode(
+                isWindows: true,
+                highContrast: false,
+                isLayeredWindow: _window.AllowsTransparency,
+                osVersion: Environment.OSVersion.Version);
 
-    private void Window_OnSizeChanged(object sender, SizeChangedEventArgs e)
-    {
-        QueueBackdropRegionUpdate();
-    }
-
-    private void Window_OnDpiChanged(object sender, System.Windows.DpiChangedEventArgs e)
-    {
-        QueueBackdropRegionUpdate();
-    }
-
-    private void QueueBackdropRegionUpdate()
-    {
-        if (_disposed || _hwnd == IntPtr.Zero || _pendingRegionUpdate is not null)
-        {
-            return;
-        }
-
-        // Window size animation can produce several SizeChanged notifications
-        // in one dispatcher pass. Rebuild the native region only once, just
-        // before WPF renders the resulting size.
-        _pendingRegionUpdate = _window.Dispatcher.BeginInvoke(
-            DispatcherPriority.Render,
-            new Action(ProcessPendingBackdropRegionUpdate));
-    }
-
-    private void ProcessPendingBackdropRegionUpdate()
-    {
-        _pendingRegionUpdate = null;
-        if (_disposed)
-        {
-            return;
-        }
-
-        try
-        {
-            UpdateBackdropRegion();
-        }
-        catch (DllNotFoundException)
-        {
-            // DWM is optional. Keep the WPF glass fallback rather than
-            // allowing a late resize callback to tear down the UI thread.
-        }
-        catch (EntryPointNotFoundException)
-        {
-            // Older Windows builds may not expose every API used here.
-        }
-    }
-
-    private void UpdateBackdropRegion()
-    {
-        if (_hwnd == IntPtr.Zero || _disposed)
-        {
-            return;
-        }
-
-        if (!GetClientRect(_hwnd, out var clientRect))
-        {
-            return;
-        }
-
-        var width = Math.Max(1, clientRect.Right - clientRect.Left);
-        var height = Math.Max(1, clientRect.Bottom - clientRect.Top);
-        var dpi = GetDpi(_hwnd);
-        if (width == _appliedClientWidth && height == _appliedClientHeight && dpi == _appliedDpi)
-        {
-            return;
-        }
-
-        var radius = Math.Clamp((int)Math.Round(20d * dpi / 96d), 1, Math.Min(width, height) / 2);
-
-        var replacementRegion = CreateIslandRegion(width, height, radius);
-        if (replacementRegion == IntPtr.Zero)
-        {
-            return;
-        }
-
-        try
-        {
-            var blurBehind = new DwmBlurBehind
+            _mode = requestedMode switch
             {
-                Flags = DwmBbEnable | DwmBbBlurRegion,
-                Enable = true,
-                BlurRegion = replacementRegion,
-                TransitionOnMaximized = false
+                WindowBackdropMode.SystemDesktopAcrylic when TryApplySystemBackdrop() =>
+                    WindowBackdropMode.SystemDesktopAcrylic,
+                WindowBackdropMode.SystemDesktopAcrylic when TryApplyAccentAcrylic() =>
+                    WindowBackdropMode.AccentAcrylic,
+                WindowBackdropMode.AccentAcrylic when TryApplyAccentAcrylic() =>
+                    WindowBackdropMode.AccentAcrylic,
+                _ => WindowBackdropMode.Fallback
             };
 
-            if (DwmEnableBlurBehindWindow(_hwnd, ref blurBehind) != 0)
-            {
-                return;
-            }
+            return IsActive;
+        }
+        catch (DllNotFoundException)
+        {
+            _mode = WindowBackdropMode.Fallback;
+            return false;
+        }
+        catch (EntryPointNotFoundException)
+        {
+            _mode = WindowBackdropMode.Fallback;
+            return false;
+        }
+    }
 
-            // DWM accepted the replacement before the previous HRGN is
-            // released. This avoids a one-frame unblurred rectangle while a
-            // transparent window is being resized.
-            var previousRegion = _blurRegion;
-            _blurRegion = replacementRegion;
-            replacementRegion = IntPtr.Zero;
-            _appliedClientWidth = width;
-            _appliedClientHeight = height;
-            _appliedDpi = dpi;
+    /// <summary>
+    /// Refreshes only the theme-dependent native tint. Acrylic is HWND state
+    /// and deliberately is not reapplied during size, position, or DPI changes.
+    /// </summary>
+    public bool RefreshTheme()
+    {
+        if (_disposed || _mode is not WindowBackdropMode.AccentAcrylic)
+        {
+            return IsActive;
+        }
 
-            if (previousRegion != IntPtr.Zero)
+        try
+        {
+            if (TryApplyAccentAcrylic())
             {
-                DeleteObject(previousRegion);
+                return true;
             }
+        }
+        catch (DllNotFoundException)
+        {
+        }
+        catch (EntryPointNotFoundException)
+        {
+        }
+
+        DisableAccentAcrylic();
+        _mode = WindowBackdropMode.Fallback;
+        return false;
+    }
+
+    internal static WindowBackdropMode SelectBackdropMode(
+        bool isWindows,
+        bool highContrast,
+        bool isLayeredWindow,
+        Version osVersion)
+    {
+        if (!isWindows || highContrast || osVersion.Major < 10)
+        {
+            return WindowBackdropMode.Fallback;
+        }
+
+        // DWM can report success for a system backdrop on a layered HWND while
+        // presenting no material. Accent acrylic is the deterministic path for
+        // NotchBar's current AllowsTransparency window on both Windows 10/11.
+        if (isLayeredWindow)
+        {
+            return WindowBackdropMode.AccentAcrylic;
+        }
+
+        return osVersion.Build >= 22621
+            ? WindowBackdropMode.SystemDesktopAcrylic
+            : WindowBackdropMode.AccentAcrylic;
+    }
+
+    internal static uint PackAccentColor(byte alpha, byte red, byte green, byte blue) =>
+        ((uint)alpha << 24) |
+        ((uint)blue << 16) |
+        ((uint)green << 8) |
+        red;
+
+    private bool TryApplyAccentAcrylic()
+    {
+        var policy = new AccentPolicy
+        {
+            State = AccentState.EnableAcrylicBlurBehind,
+            Flags = 0,
+            GradientColor = ResolveAccentGradientColor(),
+            AnimationId = 0
+        };
+
+        return SetAccentPolicy(policy);
+    }
+
+    private bool TryApplySystemBackdrop()
+    {
+        if (_window.AllowsTransparency || !OperatingSystem.IsWindowsVersionAtLeast(10, 0, 22621))
+        {
+            return false;
+        }
+
+        var value = DwmSystemBackdropTransientWindow;
+        return DwmSetWindowAttribute(_hwnd, DwmSystemBackdropType, ref value, sizeof(int)) == 0;
+    }
+
+    private uint ResolveAccentGradientColor()
+    {
+        var tint = _window.TryFindResource("IslandBackground") is SolidColorBrush brush
+            ? brush.Color
+            : MediaColor.FromRgb(0x20, 0x20, 0x20);
+        return PackAccentColor(AccentTintAlpha, tint.R, tint.G, tint.B);
+    }
+
+    private bool SetAccentPolicy(AccentPolicy policy)
+    {
+        var policyPointer = Marshal.AllocHGlobal(Marshal.SizeOf<AccentPolicy>());
+        try
+        {
+            Marshal.StructureToPtr(policy, policyPointer, fDeleteOld: false);
+            var data = new WindowCompositionAttributeData
+            {
+                Attribute = WindowCompositionAttributeAccentPolicy,
+                Data = policyPointer,
+                SizeOfData = Marshal.SizeOf<AccentPolicy>()
+            };
+            return SetWindowCompositionAttribute(_hwnd, ref data) != 0;
         }
         finally
         {
-            if (replacementRegion != IntPtr.Zero)
-            {
-                DeleteObject(replacementRegion);
-            }
+            Marshal.FreeHGlobal(policyPointer);
         }
     }
 
-    private static IntPtr CreateIslandRegion(int width, int height, int radius)
-    {
-        var rounded = CreateRoundRectRgn(0, 0, width + 1, height + 1, radius * 2, radius * 2);
-        if (rounded == IntPtr.Zero)
-        {
-            return IntPtr.Zero;
-        }
-
-        // The island has rounded bottom corners but a square top edge that
-        // meets the top of the screen when it is visible.
-        var topHeight = Math.Min(radius, height);
-        var top = CreateRectRgn(0, 0, width + 1, topHeight + 1);
-        if (top != IntPtr.Zero)
-        {
-            CombineRgn(rounded, rounded, top, RegionOr);
-            DeleteObject(top);
-        }
-
-        return rounded;
-    }
+    private static bool IsCompositionEnabled() =>
+        DwmIsCompositionEnabled(out var enabled) == 0 && enabled;
 
     private void SetWindowAttribute(uint attribute, int value)
     {
         _ = DwmSetWindowAttribute(_hwnd, attribute, ref value, sizeof(int));
     }
 
-    private void DisableBlurRegion()
+    private void DisableAccentAcrylic()
     {
-        var blurRegion = _blurRegion;
-        _blurRegion = IntPtr.Zero;
-        _appliedClientWidth = -1;
-        _appliedClientHeight = -1;
-        _appliedDpi = 0;
-
-        if (blurRegion == IntPtr.Zero)
+        if (_hwnd == IntPtr.Zero)
         {
             return;
         }
 
         try
         {
-            var blurBehind = new DwmBlurBehind
+            _ = SetAccentPolicy(new AccentPolicy
             {
-                Flags = DwmBbEnable,
-                Enable = false,
-                BlurRegion = IntPtr.Zero,
-                TransitionOnMaximized = false
-            };
-
-            if (_hwnd != IntPtr.Zero)
-            {
-                _ = DwmEnableBlurBehindWindow(_hwnd, ref blurBehind);
-            }
+                State = AccentState.Disabled
+            });
         }
-        finally
+        catch (DllNotFoundException)
         {
-            DeleteObject(blurRegion);
-        }
-    }
-
-    private static uint GetDpi(IntPtr hwnd)
-    {
-        try
-        {
-            var dpi = GetDpiForWindow(hwnd);
-            return dpi == 0 ? 96u : dpi;
         }
         catch (EntryPointNotFoundException)
         {
-            return 96u;
+        }
+    }
+
+    private void DisableSystemBackdrop()
+    {
+        if (_hwnd == IntPtr.Zero)
+        {
+            return;
+        }
+
+        try
+        {
+            var value = DwmSystemBackdropNone;
+            _ = DwmSetWindowAttribute(_hwnd, DwmSystemBackdropType, ref value, sizeof(int));
+        }
+        catch (DllNotFoundException)
+        {
+        }
+        catch (EntryPointNotFoundException)
+        {
         }
     }
 
@@ -273,59 +260,58 @@ public sealed class WindowBlurService : IDisposable
         }
 
         _disposed = true;
-        _pendingRegionUpdate?.Abort();
-        _pendingRegionUpdate = null;
-        _window.SizeChanged -= Window_OnSizeChanged;
-        _window.DpiChanged -= Window_OnDpiChanged;
-        _isApplied = false;
-        DisableBlurRegion();
+        if (_mode is WindowBackdropMode.AccentAcrylic)
+        {
+            DisableAccentAcrylic();
+        }
+        else if (_mode is WindowBackdropMode.SystemDesktopAcrylic)
+        {
+            DisableSystemBackdrop();
+        }
+
+        _mode = WindowBackdropMode.Fallback;
+        _hwnd = IntPtr.Zero;
         GC.SuppressFinalize(this);
     }
 
-    [StructLayout(LayoutKind.Sequential)]
-    private struct DwmBlurBehind
+    private enum AccentState
     {
-        public uint Flags;
-
-        [MarshalAs(UnmanagedType.Bool)]
-        public bool Enable;
-
-        public IntPtr BlurRegion;
-
-        [MarshalAs(UnmanagedType.Bool)]
-        public bool TransitionOnMaximized;
+        Disabled = 0,
+        EnableAcrylicBlurBehind = 4
     }
 
     [StructLayout(LayoutKind.Sequential)]
-    private struct Rect
+    private struct AccentPolicy
     {
-        public int Left;
-        public int Top;
-        public int Right;
-        public int Bottom;
+        public AccentState State;
+        public int Flags;
+        public uint GradientColor;
+        public int AnimationId;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct WindowCompositionAttributeData
+    {
+        public int Attribute;
+        public IntPtr Data;
+        public int SizeOfData;
     }
 
     [DllImport("dwmapi.dll")]
-    private static extern int DwmEnableBlurBehindWindow(IntPtr hwnd, ref DwmBlurBehind blurBehind);
+    private static extern int DwmIsCompositionEnabled([MarshalAs(UnmanagedType.Bool)] out bool enabled);
 
     [DllImport("dwmapi.dll")]
     private static extern int DwmSetWindowAttribute(IntPtr hwnd, uint attribute, ref int value, int size);
 
     [DllImport("user32.dll")]
-    private static extern bool GetClientRect(IntPtr hwnd, out Rect rect);
+    private static extern int SetWindowCompositionAttribute(
+        IntPtr hwnd,
+        ref WindowCompositionAttributeData data);
+}
 
-    [DllImport("user32.dll")]
-    private static extern uint GetDpiForWindow(IntPtr hwnd);
-
-    [DllImport("gdi32.dll")]
-    private static extern IntPtr CreateRoundRectRgn(int left, int top, int right, int bottom, int width, int height);
-
-    [DllImport("gdi32.dll")]
-    private static extern IntPtr CreateRectRgn(int left, int top, int right, int bottom);
-
-    [DllImport("gdi32.dll")]
-    private static extern int CombineRgn(IntPtr destination, IntPtr source1, IntPtr source2, int mode);
-
-    [DllImport("gdi32.dll")]
-    private static extern bool DeleteObject(IntPtr objectHandle);
+internal enum WindowBackdropMode
+{
+    Fallback,
+    AccentAcrylic,
+    SystemDesktopAcrylic
 }

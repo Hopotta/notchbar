@@ -20,7 +20,7 @@
         SourceInitialized="Window_OnSourceInitialized"
         Closed="Window_OnClosed">
     <Border x:Name="IslandBorder"
-            Background="{DynamicResource IslandBackground}"
+            Background="{DynamicResource IslandFallbackBackground}"
             BorderBrush="Transparent"
             BorderThickness="0"
             CornerRadius="0,0,20,20"
