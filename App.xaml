@@ -4,6 +4,7 @@
              ShutdownMode="OnMainWindowClose">
     <Application.Resources>
         <SolidColorBrush x:Key="IslandBackground" Color="#BFFFFFFF" />
+        <SolidColorBrush x:Key="IslandGlassWash" Color="#50FFFFFF" />
         <LinearGradientBrush x:Key="IslandFallbackBackground" StartPoint="0,0" EndPoint="0,1">
             <GradientStop Color="#EAF7FBFF" Offset="0" />
             <GradientStop Color="#DEEAF2F7" Offset="0.52" />

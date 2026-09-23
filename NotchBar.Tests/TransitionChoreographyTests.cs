@@ -249,4 +249,54 @@ public sealed class TransitionChoreographyTests
 
         Assert.Equal(first, reversed);
     }
+
+    [Fact]
+    public void TextMotionSize_UsesLargestEndpointBoxToPreventWrapAndClipping()
+    {
+        var compact = new ClockTextAnchor(
+            new Point(4, 8),
+            11,
+            8,
+            RenderedWidth: 40,
+            RenderedHeight: 12);
+        var expanded = compact with
+        {
+            RenderedWidth = 68,
+            RenderedHeight = 18
+        };
+        var expected = new System.Windows.Size(68, 18);
+        Assert.Equal(expected, TransitionChoreography.EvaluateTextMotionSize(compact, expanded));
+        Assert.Equal(expected, TransitionChoreography.EvaluateTextMotionSize(expanded, compact));
+    }
+
+    [Fact]
+    public void EndpointPlacement_UsesArrangedOriginAndExactTargetTypography()
+    {
+        var target = new ClockTextAnchor(
+            new Point(37.25, 81.875),
+            13.5,
+            9.8125,
+            new FontFamily("Segoe UI"),
+            FontStyles.Italic,
+            FontWeights.SemiBold,
+            FontStretches.Condensed,
+            FlowDirection.RightToLeft,
+            Color.FromArgb(255, 201, 211, 221),
+            RenderedWidth: 47.25,
+            RenderedHeight: 18.5,
+            ArrangedTopLeft: new Point(12.125, 72.0625));
+
+        var placement = TransitionChoreography.PlaceAtEndpoint(target);
+
+        Assert.Equal(target.ArrangedTopLeft, placement.TopLeft);
+        Assert.Equal(target.LeadingBaseline, placement.LeadingBaseline);
+        Assert.Equal(target.FontSize, placement.FontSize);
+        Assert.Equal(target.BaselineFromTop, placement.BaselineFromTop);
+        Assert.Equal(target.FontFamily, placement.FontFamily);
+        Assert.Equal(target.FontStyle, placement.FontStyle);
+        Assert.Equal(target.FontWeight, placement.FontWeight);
+        Assert.Equal(target.FontStretch, placement.FontStretch);
+        Assert.Equal(target.FlowDirection, placement.FlowDirection);
+        Assert.Equal(target.ForegroundColor, placement.ForegroundColor);
+    }
 }

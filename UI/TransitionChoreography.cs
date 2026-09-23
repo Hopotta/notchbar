@@ -84,6 +84,58 @@ public static class TransitionChoreography
             detachment);
     }
 
+    /// <summary>
+    /// Keeps the motion overlay large enough for either endpoint's glyph layout.
+    /// The exact target box is applied only at ownership handoff, avoiding wrap
+    /// or clipping thresholds during animated font-size interpolation.
+    /// </summary>
+    public static System.Windows.Size EvaluateTextMotionSize(
+        ClockTextAnchor compact,
+        ClockTextAnchor expanded) =>
+        new(
+            LargestValidDimension(compact.RenderedWidth, expanded.RenderedWidth),
+            LargestValidDimension(compact.RenderedHeight, expanded.RenderedHeight));
+
+    private static double LargestValidDimension(double first, double second)
+    {
+        var firstValid = double.IsFinite(first) && first > 0;
+        var secondValid = double.IsFinite(second) && second > 0;
+        if (firstValid && secondValid)
+        {
+            return Math.Max(first, second);
+        }
+
+        if (firstValid)
+        {
+            return first;
+        }
+
+        return secondValid ? second : double.NaN;
+    }
+
+    /// <summary>
+    /// Places the overlay from the fully arranged target TextBlock metrics.
+    /// It is used only during endpoint ownership transfer.
+    /// </summary>
+    public static ClockTextPlacement PlaceAtEndpoint(ClockTextAnchor target) => new(
+        target.RenderedHeight > 0
+            ? target.ArrangedTopLeft
+            : new Point(
+                target.FlowDirection == WindowsFlowDirection.RightToLeft
+                    ? target.LeadingBaseline.X - target.RenderedWidth
+                    : target.LeadingBaseline.X,
+                target.LeadingBaseline.Y - target.BaselineFromTop),
+        target.LeadingBaseline,
+        target.FontSize,
+        target.BaselineFromTop,
+        target.FontFamily,
+        target.FontStyle,
+        target.FontWeight,
+        target.FontStretch,
+        target.FlowDirection,
+        target.ForegroundColor,
+        Opacity: 1d);
+
     private static ClockTextPlacement PlaceText(
         ClockTextAnchor compact,
         ClockTextAnchor expanded,
@@ -198,7 +250,22 @@ public readonly record struct ClockTextAnchor(
     WindowsFontWeight FontWeight = default,
     WindowsFontStretch FontStretch = default,
     WindowsFlowDirection FlowDirection = WindowsFlowDirection.LeftToRight,
-    MediaColor ForegroundColor = default);
+    MediaColor ForegroundColor = default,
+    double RenderedWidth = 0,
+    double RenderedHeight = 0,
+    Point ArrangedTopLeft = default,
+    bool UseLayoutRounding = false,
+    bool SnapsToDevicePixels = false,
+    System.Windows.Media.TextFormattingMode TextFormattingMode = System.Windows.Media.TextFormattingMode.Ideal,
+    System.Windows.Media.TextRenderingMode TextRenderingMode = System.Windows.Media.TextRenderingMode.Auto,
+    System.Windows.Media.TextHintingMode TextHintingMode = System.Windows.Media.TextHintingMode.Auto,
+    TextTrimming TextTrimming = TextTrimming.None,
+    TextWrapping TextWrapping = TextWrapping.NoWrap,
+    double LineHeight = double.NaN,
+    LineStackingStrategy LineStackingStrategy = LineStackingStrategy.MaxHeight,
+    Thickness Padding = default,
+    TextAlignment TextAlignment = TextAlignment.Left,
+    System.Windows.Markup.XmlLanguage? Language = null);
 
 public readonly record struct ClockTextAnchors(
     ClockTextAnchor Title,

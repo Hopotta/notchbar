@@ -43,6 +43,13 @@ public partial class CompactView : UserControl
     {
         TitleText.Text = item.Title;
         var isClock = string.Equals(item.Id, StatusStore.ClockId, StringComparison.OrdinalIgnoreCase);
+        if (ApplyClockTextFormatting(isClock))
+        {
+            _titleBaselineMetrics = null;
+            _summaryBaselineMetrics = null;
+            _secondaryBaselineMetrics = null;
+        }
+
         StatusHalo.Visibility = isClock ? Visibility.Collapsed : Visibility.Visible;
         TitleChip.Margin = isClock
             ? new Thickness(0)
@@ -77,6 +84,49 @@ public partial class CompactView : UserControl
         PinButton.ToolTip = pinned ? "Unpin" : "Pin";
     }
 
+    private bool ApplyClockTextFormatting(bool isClock)
+    {
+        var formattingProperty = TextOptions.TextFormattingModeProperty;
+        var hintingProperty = TextOptions.TextHintingModeProperty;
+        var textElements = new[] { TitleText, SecondaryText };
+        if (isClock)
+        {
+            var formattingChanged = textElements.Any(
+                element => TextOptions.GetTextFormattingMode(element) != TextFormattingMode.Ideal);
+            foreach (var element in textElements)
+            {
+                if (TextOptions.GetTextFormattingMode(element) != TextFormattingMode.Ideal)
+                {
+                    TextOptions.SetTextFormattingMode(element, TextFormattingMode.Ideal);
+                }
+
+                if (TextOptions.GetTextHintingMode(element) != TextHintingMode.Animated)
+                {
+                    TextOptions.SetTextHintingMode(element, TextHintingMode.Animated);
+                }
+            }
+
+            return formattingChanged;
+        }
+
+        var formattingChangedOnReset = false;
+        foreach (var element in textElements)
+        {
+            if (element.ReadLocalValue(formattingProperty) != DependencyProperty.UnsetValue)
+            {
+                element.ClearValue(formattingProperty);
+                formattingChangedOnReset = true;
+            }
+
+            if (element.ReadLocalValue(hintingProperty) != DependencyProperty.UnsetValue)
+            {
+                element.ClearValue(hintingProperty);
+            }
+        }
+
+        return formattingChangedOnReset;
+    }
+
     public double GetPreferredWidth()
     {
         LayoutRoot.Measure(new System.Windows.Size(double.PositiveInfinity, 44));
@@ -92,9 +142,14 @@ public partial class CompactView : UserControl
         GetUntranslatedCenter(PinButton, _pinTranslate, ancestor));
 
     public ClockTextAnchors CaptureClockTextAnchors(UIElement ancestor) => new(
-        CaptureTextAnchor(TitleText, _titleTranslate, ancestor, ref _titleBaselineMetrics),
-        CaptureTextAnchor(SummaryText, _summaryTranslate, ancestor, ref _summaryBaselineMetrics),
-        CaptureTextAnchor(SecondaryText, _secondaryTranslate, ancestor, ref _secondaryBaselineMetrics));
+        CaptureTextAnchor(TitleText, _titleTranslate, ancestor, false, ref _titleBaselineMetrics),
+        CaptureTextAnchor(SummaryText, _summaryTranslate, ancestor, false, ref _summaryBaselineMetrics),
+        CaptureTextAnchor(SecondaryText, _secondaryTranslate, ancestor, false, ref _secondaryBaselineMetrics));
+
+    public ClockTextAnchors CaptureFinalClockTextAnchors(UIElement ancestor) => new(
+        CaptureTextAnchor(TitleText, _titleTranslate, ancestor, true, ref _titleBaselineMetrics),
+        CaptureTextAnchor(SummaryText, _summaryTranslate, ancestor, true, ref _summaryBaselineMetrics),
+        CaptureTextAnchor(SecondaryText, _secondaryTranslate, ancestor, true, ref _secondaryBaselineMetrics));
 
     public void ApplyTransition(
         TransitionChoreographyFrame frame,
@@ -121,6 +176,14 @@ public partial class CompactView : UserControl
         _statusScale.ScaleY = haloScale;
     }
 
+    public void SetClockTextOverlayOwned(bool owned)
+    {
+        var opacity = owned ? 0d : 1d;
+        TitleText.Opacity = opacity;
+        SummaryText.Opacity = opacity;
+        SecondaryText.Opacity = opacity;
+    }
+
     public void ResetTransitionVisuals()
     {
         Reset(_statusTranslate);
@@ -140,6 +203,7 @@ public partial class CompactView : UserControl
         TextBlock element,
         TranslateTransform translation,
         UIElement ancestor,
+        bool useArrangedBaseline,
         ref TextBaselineMetrics? baselineMetrics)
     {
         var dpi = VisualTreeHelper.GetDpi(element);
@@ -172,13 +236,19 @@ public partial class CompactView : UserControl
             baselineMetrics = metrics;
         }
 
-        var baselineFromTop = metrics.BaselineFromTop;
+        // Motion frames use cached typeface metrics to avoid text formatting work.
+        // Endpoint handoff uses the arranged TextBlock baseline that WPF itself
+        // will use to draw the target glyphs.
+        var baselineFromTop = useArrangedBaseline
+            ? element.BaselineOffset
+            : metrics.BaselineFromTop;
         var leadingX = element.FlowDirection == System.Windows.FlowDirection.RightToLeft
             ? element.ActualWidth
             : 0d;
         var transformed = element.TranslatePoint(
             new Point(leadingX, baselineFromTop),
             ancestor);
+        var arrangedTopLeft = element.TranslatePoint(new Point(0, 0), ancestor);
 
         return new ClockTextAnchor(
             new Point(
@@ -191,7 +261,24 @@ public partial class CompactView : UserControl
             element.FontWeight,
             element.FontStretch,
             element.FlowDirection,
-            (element.Foreground as SolidColorBrush)?.Color ?? Colors.Transparent);
+            (element.Foreground as SolidColorBrush)?.Color ?? Colors.Transparent,
+            element.ActualWidth,
+            element.ActualHeight,
+            new Point(
+                arrangedTopLeft.X - translation.X,
+                arrangedTopLeft.Y - translation.Y),
+            element.UseLayoutRounding,
+            element.SnapsToDevicePixels,
+            TextOptions.GetTextFormattingMode(element),
+            TextOptions.GetTextRenderingMode(element),
+            TextOptions.GetTextHintingMode(element),
+            element.TextTrimming,
+            element.TextWrapping,
+            element.LineHeight,
+            element.LineStackingStrategy,
+            element.Padding,
+            element.TextAlignment,
+            element.Language);
     }
 
     private readonly record struct TextBaselineKey(

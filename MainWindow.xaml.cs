@@ -4,6 +4,8 @@ using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
+using System.Windows.Threading;
+using Point = System.Windows.Point;
 using NotchBar.Core;
 using NotchBar.Services;
 using NotchBar.UI;
@@ -24,6 +26,7 @@ public partial class MainWindow : Window, IDisposable
     private readonly SolidColorBrush _clockTitleOverlayBrush = new(Colors.Transparent);
     private readonly SolidColorBrush _clockTimeOverlayBrush = new(Colors.Transparent);
     private readonly SolidColorBrush _clockDateOverlayBrush = new(Colors.Transparent);
+    private readonly ClockOverlayHandoff _clockOverlayHandoff = new();
     private readonly MonitorPlacementService _monitorPlacementService;
     private readonly WindowController _windowController;
     private readonly WindowBlurService _windowBlurService;
@@ -35,6 +38,13 @@ public partial class MainWindow : Window, IDisposable
     private bool _contentMorphPrepared;
     private bool _displayedItemIsClock;
     private bool _isFullscreenSuppressed;
+    private Task<bool> _backdropInitializationTask = Task.FromResult(false);
+    private DispatcherOperation? _clockOverlayLayoutOperation;
+    private bool _clockOverlayRenderingSubscribed;
+    private bool _clockOverlayHasEndpointSizeOverrides;
+    private bool _clockOverlayHasTargetTextSettings;
+    private long _clockOverlayRenderingGeneration;
+    private NotchState _clockOverlaySettledState = NotchState.Compact;
     private bool _disposed;
 
     public MainWindow(StatusStore statusStore, SettingsService settings)
@@ -51,7 +61,8 @@ public partial class MainWindow : Window, IDisposable
 
         _monitorPlacementService = new MonitorPlacementService(_settings.MonitorMode);
         _windowController = new WindowController(this, _monitorPlacementService.Current);
-        _windowBlurService = new WindowBlurService(this);
+        _windowBlurService = new WindowBlurService(this, _windowController);
+        _windowBlurService.AvailabilityChanged += WindowBlurService_OnAvailabilityChanged;
         _autoHideService = new AutoHideService(_stateMachine, _settings.AutoHideDelay);
         if (_settings.HideInFullscreen)
         {
@@ -66,6 +77,7 @@ public partial class MainWindow : Window, IDisposable
         CompactContent.PinClicked += Pin_OnClicked;
         ExpandedContent.PinClicked += Pin_OnClicked;
         ExpandedContent.CollapseRequested += ExpandedContent_OnCollapseRequested;
+        DpiChanged += MainWindow_OnDpiChanged;
 
         RefreshItem();
         ApplyVisualState(_stateMachine.Current);
@@ -75,10 +87,21 @@ public partial class MainWindow : Window, IDisposable
 
     public bool IsPinned => _stateMachine.IsPinned;
 
+    public Task<bool> InitializeBackdropAsync() => _backdropInitializationTask;
+
+    public void ActivateBackdrop()
+    {
+        if (!_disposed)
+        {
+            ApplyBackdropVisual(_windowBlurService.Activate());
+        }
+    }
+
     public void RefreshTheme()
     {
         if (!_disposed)
         {
+            InvalidateClockOverlayForContentChange();
             ApplyBackdropVisual(_windowBlurService.RefreshTheme());
             RefreshItem(applyWindowSize: false);
         }
@@ -165,7 +188,8 @@ public partial class MainWindow : Window, IDisposable
         }
 
         _windowController.Attach();
-        ApplyBackdropVisual(_windowBlurService.TryApply());
+        ApplyBackdropVisual(backdropActive: false);
+        _backdropInitializationTask = _windowBlurService.InitializeAsync();
 
         _monitorPlacementService.Start();
         _hotkeyService.Pressed += HotkeyService_OnPressed;
@@ -178,9 +202,19 @@ public partial class MainWindow : Window, IDisposable
     {
         IslandBorder.SetResourceReference(
             Border.BackgroundProperty,
-            backdropActive ? "IslandBackground" : "IslandFallbackBackground");
+            backdropActive ? "IslandGlassWash" : "IslandFallbackBackground");
     }
 
+
+    private void WindowBlurService_OnAvailabilityChanged(
+        object? sender,
+        BackdropAvailabilityChangedEventArgs e)
+    {
+        if (!_disposed)
+        {
+            ApplyBackdropVisual(e.IsActive);
+        }
+    }
 
     private void MonitorPlacementService_OnChanged(object? sender, MonitorTargetChangedEventArgs e)
     {
@@ -223,6 +257,8 @@ public partial class MainWindow : Window, IDisposable
 
         _isFullscreenSuppressed = e.IsSuppressed;
         _windowController.SetSuppressed(_isFullscreenSuppressed);
+        _windowBlurService.SetSuppressed(_isFullscreenSuppressed);
+        ApplyBackdropVisual(_windowBlurService.IsActive);
         if (_isFullscreenSuppressed)
         {
             _autoHideService.ResetPointerState();
@@ -320,6 +356,11 @@ public partial class MainWindow : Window, IDisposable
         }
 
         var visualState = _stateMachine.VisualState;
+        if (!_isFullscreenSuppressed && IsClockOverlayFinalizing)
+        {
+            ResumeClockOverlayMotion();
+        }
+
         HiddenTrigger.Visibility = !_isFullscreenSuppressed && state == NotchState.Hidden
             ? Visibility.Visible
             : Visibility.Collapsed;
@@ -373,22 +414,51 @@ public partial class MainWindow : Window, IDisposable
         }
 
         var frame = e.Frame;
-        if (frame.ExpansionProgress > 0.001 ||
-            frame.TargetState is NotchState.Expanded or NotchState.Pinned)
+        var isSettledWindowEndpoint = frame.IsSettled &&
+            frame.TargetState is NotchState.Compact or NotchState.Expanded or NotchState.Pinned;
+        var settledState = frame.TargetState is NotchState.Expanded or NotchState.Pinned
+            ? NotchState.Expanded
+            : NotchState.Compact;
+        var endpoint = settledState == NotchState.Expanded
+            ? ClockOverlayEndpoint.Expanded
+            : ClockOverlayEndpoint.Compact;
+        var shouldHandoffClockOverlay = isSettledWindowEndpoint &&
+            _displayedItemIsClock &&
+            ClockTransitionOverlay.Visibility == Visibility.Visible &&
+            (_clockOverlayHandoff.State == ClockOverlayHandoffState.Moving ||
+             _clockOverlayHandoff.IsFinalizingEndpoint(endpoint));
+
+        if (!shouldHandoffClockOverlay && !isSettledWindowEndpoint)
         {
-            PrepareContentMorph();
-            ApplyContentMorphFrame(frame.ExpansionProgress);
-        }
-        else
-        {
-            SetContentStateImmediate(NotchState.Compact);
+            ResumeClockOverlayMotion();
         }
 
-        if (!e.IsTransitionActive && frame.IsSettled)
+        // The controller first reports the spring's target, then commits the
+        // final HWND size. Keep the last overlay frame until the dispatcher has
+        // arranged that committed size and captured the real target anchors.
+        if (!shouldHandoffClockOverlay)
         {
-            var settledState = frame.TargetState is NotchState.Expanded or NotchState.Pinned
-                ? NotchState.Expanded
-                : NotchState.Compact;
+            if (frame.ExpansionProgress > 0.001 ||
+                frame.TargetState is NotchState.Expanded or NotchState.Pinned)
+            {
+                PrepareContentMorph();
+                ApplyContentMorphFrame(frame.ExpansionProgress);
+            }
+            else
+            {
+                SetContentStateImmediate(NotchState.Compact);
+            }
+        }
+
+        if (shouldHandoffClockOverlay)
+        {
+            // Starting while the controller is finishing the settled render
+            // callback is safe: the queued layout operation runs after its final
+            // native geometry commit and before the next presented frame.
+            BeginClockOverlayEndpointHandoff(settledState);
+        }
+        else if (!e.IsTransitionActive && frame.IsSettled)
+        {
             SetContentStateImmediate(settledState);
             TryRunPendingItemTransition();
         }
@@ -462,6 +532,7 @@ public partial class MainWindow : Window, IDisposable
 
     private void SetContentStateImmediate(NotchState visualState)
     {
+        CancelClockOverlayHandoff(continueMoving: false);
         _contentMorphPrepared = false;
         ResetClockOverlayOwnership();
         CompactHost.Opacity = 1;
@@ -491,6 +562,7 @@ public partial class MainWindow : Window, IDisposable
             return;
         }
 
+        InvalidateClockOverlayForContentChange();
         RefreshItem();
         if (e.WakeOnUpdate && !_stateMachine.IsPinned && !_isFullscreenSuppressed)
         {
@@ -575,6 +647,20 @@ public partial class MainWindow : Window, IDisposable
             expandedAnchors.Date);
 
         ClockTransitionOverlay.Visibility = Visibility.Visible;
+        ResetClockOverlayEndpointSizes();
+        var settingsFromExpandedTarget = _stateMachine.VisualState is NotchState.Expanded or NotchState.Pinned;
+        ApplyClockOverlayTextSettings(
+            ClockTitleOverlay,
+            settingsFromExpandedTarget ? expandedAnchors.Title : compactAnchors.Title);
+        ApplyClockOverlayTextSettings(
+            ClockTimeOverlay,
+            settingsFromExpandedTarget ? expandedAnchors.Time : compactAnchors.Time);
+        ApplyClockOverlayTextSettings(
+            ClockDateOverlay,
+            settingsFromExpandedTarget ? expandedAnchors.Date : compactAnchors.Date);
+        ApplyClockOverlayMotionSize(ClockTitleOverlay, compactAnchors.Title, expandedAnchors.Title);
+        ApplyClockOverlayMotionSize(ClockTimeOverlay, compactAnchors.Time, expandedAnchors.Time);
+        ApplyClockOverlayMotionSize(ClockDateOverlay, compactAnchors.Date, expandedAnchors.Date);
         ApplyClockTextPlacement(ClockTitleOverlay, _clockTitleOverlayBrush, title);
         ApplyClockTextPlacement(ClockTimeOverlay, _clockTimeOverlayBrush, time);
         ApplyClockTextPlacement(ClockDateOverlay, _clockDateOverlayBrush, date);
@@ -628,15 +714,432 @@ public partial class MainWindow : Window, IDisposable
     private void ResetClockOverlayOwnership()
     {
         ClockTransitionOverlay.Visibility = Visibility.Collapsed;
+        ResetClockOverlayEndpointSizes();
+        ResetClockOverlaySizes();
+        ClearClockOverlayTextSettings();
         ClockTitleOverlay.Opacity = 1;
         ClockTimeOverlay.Opacity = 1;
         ClockDateOverlay.Opacity = 1;
+    }
+
+    private bool IsClockOverlayFinalizing =>
+        _clockOverlayHandoff.State is
+            ClockOverlayHandoffState.AwaitingLayout or
+            ClockOverlayHandoffState.EndpointArmed or
+            ClockOverlayHandoffState.EndpointFrameObserved or
+            ClockOverlayHandoffState.Release;
+
+    private void BeginClockOverlayEndpointHandoff(NotchState settledState)
+    {
+        var endpoint = settledState == NotchState.Expanded
+            ? ClockOverlayEndpoint.Expanded
+            : ClockOverlayEndpoint.Compact;
+        if (_clockOverlayHandoff.IsFinalizingEndpoint(endpoint))
+        {
+            return;
+        }
+
+        CancelClockOverlayCallbacks();
+        _clockOverlaySettledState = settledState;
+        var generation = _clockOverlayHandoff.BeginAwaitingLayout(endpoint);
+        _clockOverlayLayoutOperation = Dispatcher.BeginInvoke(
+            DispatcherPriority.Render,
+            new Action(() => ArmClockOverlayEndpoint(generation, endpoint)));
+    }
+
+    private void ArmClockOverlayEndpoint(long generation, ClockOverlayEndpoint endpoint)
+    {
+        _clockOverlayLayoutOperation = null;
+        if (_disposed ||
+            _clockOverlayHandoff.Generation != generation ||
+            _clockOverlayHandoff.State != ClockOverlayHandoffState.AwaitingLayout)
+        {
+            return;
+        }
+
+        var exactProgress = endpoint == ClockOverlayEndpoint.Expanded ? 1d : 0d;
+        PrepareContentMorph();
+        ContentRoot.UpdateLayout();
+        ApplyContentMorphFrame(exactProgress);
+        ContentRoot.UpdateLayout();
+
+        ArrangeClockEndpointUnderOverlay(endpoint);
+
+        // Capture after the final endpoint transforms and final host geometry
+        // have both reached Measure/Arrange. The expanded date specifically comes
+        // from SimpleSecondaryText after BodyMotionTranslate reaches zero.
+        var anchors = endpoint == ClockOverlayEndpoint.Expanded
+            ? ExpandedContent.CaptureFinalClockTextAnchors(ContentRoot)
+            : CompactContent.CaptureFinalClockTextAnchors(ContentRoot);
+        if (!AreFinalClockAnchorsUsable(anchors))
+        {
+            SetContentStateImmediate(_clockOverlaySettledState);
+            TryRunPendingItemTransition();
+            return;
+        }
+
+        ApplyClockEndpointOverlay(anchors);
+        if (!_clockOverlayHandoff.TryArmEndpoint(generation))
+        {
+            return;
+        }
+
+        _clockOverlayRenderingGeneration = generation;
+        CompositionTarget.Rendering += ClockOverlay_OnRendering;
+        _clockOverlayRenderingSubscribed = true;
+    }
+
+    private void ApplyClockEndpointOverlay(ClockTextAnchors anchors)
+    {
+        ClockTransitionOverlay.Visibility = Visibility.Visible;
+        ApplyClockTextPlacement(
+            ClockTitleOverlay,
+            _clockTitleOverlayBrush,
+            TransitionChoreography.PlaceAtEndpoint(anchors.Title));
+        ApplyClockTextPlacement(
+            ClockTimeOverlay,
+            _clockTimeOverlayBrush,
+            TransitionChoreography.PlaceAtEndpoint(anchors.Time));
+        ApplyClockTextPlacement(
+            ClockDateOverlay,
+            _clockDateOverlayBrush,
+            TransitionChoreography.PlaceAtEndpoint(anchors.Date));
+
+        SetClockOverlayLayout(ClockTitleOverlay, anchors.Title);
+        SetClockOverlayLayout(ClockTimeOverlay, anchors.Time);
+        SetClockOverlayLayout(ClockDateOverlay, anchors.Date);
+        _clockOverlayHasEndpointSizeOverrides = true;
+        ClockTransitionOverlay.UpdateLayout();
+
+        // Match actual arranged element origins, not just computed baseline
+        // coordinates. This corrects any difference from Canvas arrange,
+        // layout rounding, or device-pixel snapping at the current DPI.
+        AlignClockOverlayToTarget(ClockTitleOverlay, anchors.Title);
+        AlignClockOverlayToTarget(ClockTimeOverlay, anchors.Time);
+        AlignClockOverlayToTarget(ClockDateOverlay, anchors.Date);
+        ClockTransitionOverlay.UpdateLayout();
+        AlignClockOverlayToTarget(ClockTitleOverlay, anchors.Title);
+        AlignClockOverlayToTarget(ClockTimeOverlay, anchors.Time);
+        AlignClockOverlayToTarget(ClockDateOverlay, anchors.Date);
+        ClockTransitionOverlay.UpdateLayout();
+    }
+
+    private void ResetClockOverlayEndpointSizes()
+    {
+        if (!_clockOverlayHasEndpointSizeOverrides)
+        {
+            return;
+        }
+
+        _clockOverlayHasEndpointSizeOverrides = false;
+        ClockTitleOverlay.Width = double.NaN;
+        ClockTitleOverlay.Height = double.NaN;
+        ClockTimeOverlay.Width = double.NaN;
+        ClockTimeOverlay.Height = double.NaN;
+        ClockDateOverlay.Width = double.NaN;
+        ClockDateOverlay.Height = double.NaN;
+    }
+
+    private void ResetClockOverlaySizes()
+    {
+        ResetClockOverlaySize(ClockTitleOverlay);
+        ResetClockOverlaySize(ClockTimeOverlay);
+        ResetClockOverlaySize(ClockDateOverlay);
+        _clockOverlayHasEndpointSizeOverrides = false;
+    }
+
+    private static void ResetClockOverlaySize(TextBlock overlay)
+    {
+        if (!double.IsNaN(overlay.Width))
+        {
+            overlay.Width = double.NaN;
+        }
+        if (!double.IsNaN(overlay.Height))
+        {
+            overlay.Height = double.NaN;
+        }
+    }
+
+    private void ClearClockOverlayTextSettings()
+    {
+        if (!_clockOverlayHasTargetTextSettings)
+        {
+            return;
+        }
+
+        _clockOverlayHasTargetTextSettings = false;
+        ClearClockOverlayTextSettings(ClockTitleOverlay);
+        ClearClockOverlayTextSettings(ClockTimeOverlay);
+        ClearClockOverlayTextSettings(ClockDateOverlay);
+    }
+
+    private static void ClearClockOverlayTextSettings(TextBlock overlay)
+    {
+        overlay.ClearValue(FrameworkElement.UseLayoutRoundingProperty);
+        overlay.ClearValue(UIElement.SnapsToDevicePixelsProperty);
+        overlay.ClearValue(TextOptions.TextFormattingModeProperty);
+        overlay.ClearValue(TextOptions.TextRenderingModeProperty);
+        overlay.ClearValue(TextOptions.TextHintingModeProperty);
+        overlay.ClearValue(TextBlock.TextTrimmingProperty);
+        overlay.ClearValue(TextBlock.TextWrappingProperty);
+        overlay.ClearValue(TextBlock.LineHeightProperty);
+        overlay.ClearValue(TextBlock.LineStackingStrategyProperty);
+        overlay.ClearValue(TextBlock.PaddingProperty);
+        overlay.ClearValue(TextBlock.TextAlignmentProperty);
+        overlay.ClearValue(FrameworkElement.LanguageProperty);
+    }
+
+    private void ApplyClockOverlayTextSettings(TextBlock overlay, ClockTextAnchor target)
+    {
+        _clockOverlayHasTargetTextSettings = true;
+        if (overlay.UseLayoutRounding != target.UseLayoutRounding)
+        {
+            overlay.UseLayoutRounding = target.UseLayoutRounding;
+        }
+        if (overlay.SnapsToDevicePixels != target.SnapsToDevicePixels)
+        {
+            overlay.SnapsToDevicePixels = target.SnapsToDevicePixels;
+        }
+        if (TextOptions.GetTextFormattingMode(overlay) != target.TextFormattingMode)
+        {
+            TextOptions.SetTextFormattingMode(overlay, target.TextFormattingMode);
+        }
+        if (TextOptions.GetTextRenderingMode(overlay) != target.TextRenderingMode)
+        {
+            TextOptions.SetTextRenderingMode(overlay, target.TextRenderingMode);
+        }
+        if (TextOptions.GetTextHintingMode(overlay) != target.TextHintingMode)
+        {
+            TextOptions.SetTextHintingMode(overlay, target.TextHintingMode);
+        }
+        if (overlay.TextTrimming != target.TextTrimming)
+        {
+            overlay.TextTrimming = target.TextTrimming;
+        }
+        if (overlay.TextWrapping != target.TextWrapping)
+        {
+            overlay.TextWrapping = target.TextWrapping;
+        }
+        if (!overlay.LineHeight.Equals(target.LineHeight))
+        {
+            overlay.LineHeight = target.LineHeight;
+        }
+        if (overlay.LineStackingStrategy != target.LineStackingStrategy)
+        {
+            overlay.LineStackingStrategy = target.LineStackingStrategy;
+        }
+        if (!overlay.Padding.Equals(target.Padding))
+        {
+            overlay.Padding = target.Padding;
+        }
+        if (overlay.TextAlignment != target.TextAlignment)
+        {
+            overlay.TextAlignment = target.TextAlignment;
+        }
+        if (target.Language is not null && overlay.Language != target.Language)
+        {
+            overlay.Language = target.Language;
+        }
+    }
+
+    private static void ApplyClockOverlayMotionSize(
+        TextBlock overlay,
+        ClockTextAnchor compact,
+        ClockTextAnchor expanded)
+    {
+        var size = TransitionChoreography.EvaluateTextMotionSize(compact, expanded);
+        if (double.IsFinite(size.Width) && size.Width > 0 && !overlay.Width.Equals(size.Width))
+        {
+            overlay.Width = size.Width;
+        }
+        if (double.IsFinite(size.Height) && size.Height > 0 && !overlay.Height.Equals(size.Height))
+        {
+            overlay.Height = size.Height;
+        }
+    }
+
+    private void SetClockOverlayLayout(TextBlock overlay, ClockTextAnchor target)
+    {
+        if (double.IsFinite(target.RenderedWidth) && target.RenderedWidth > 0)
+        {
+            overlay.Width = target.RenderedWidth;
+        }
+
+        if (double.IsFinite(target.RenderedHeight) && target.RenderedHeight > 0)
+        {
+            overlay.Height = target.RenderedHeight;
+        }
+
+        ApplyClockOverlayTextSettings(overlay, target);
+    }
+
+    private void AlignClockOverlayToTarget(TextBlock overlay, ClockTextAnchor target)
+    {
+        if (!double.IsFinite(target.ArrangedTopLeft.X) ||
+            !double.IsFinite(target.ArrangedTopLeft.Y))
+        {
+            return;
+        }
+
+        var currentOrigin = overlay.TranslatePoint(new Point(0, 0), ContentRoot);
+        var left = Canvas.GetLeft(overlay);
+        var top = Canvas.GetTop(overlay);
+        if (!double.IsFinite(left))
+        {
+            left = 0;
+        }
+
+        if (!double.IsFinite(top))
+        {
+            top = 0;
+        }
+
+        Canvas.SetLeft(overlay, left + target.ArrangedTopLeft.X - currentOrigin.X);
+        Canvas.SetTop(overlay, top + target.ArrangedTopLeft.Y - currentOrigin.Y);
+    }
+
+    private void ClockOverlay_OnRendering(object? sender, EventArgs e)
+    {
+        var generation = _clockOverlayRenderingGeneration;
+        var action = _clockOverlayHandoff.ObserveRendering(generation);
+        if (action != ClockOverlayRenderAction.ReleaseOverlay)
+        {
+            return;
+        }
+
+        CancelClockOverlayCallbacks();
+        if (!_clockOverlayHandoff.CompleteRelease(generation))
+        {
+            return;
+        }
+
+        ReleaseClockOverlayOwnership();
+        TryRunPendingItemTransition();
+    }
+
+    private void ArrangeClockEndpointUnderOverlay(ClockOverlayEndpoint endpoint)
+    {
+        // Commit the exact final host/transform state while the overlay still
+        // owns the Clock glyphs. Only the target Clock TextBlocks stay hidden;
+        // they remain measured and arranged for exact endpoint capture.
+        CompactContent.ResetTransitionVisuals();
+        ExpandedContent.ResetLayoutTransition();
+        CompactHost.Opacity = 1;
+        ExpandedHost.Opacity = 1;
+
+        var expanded = endpoint == ClockOverlayEndpoint.Expanded;
+        CompactHost.Visibility = expanded ? Visibility.Collapsed : Visibility.Visible;
+        ExpandedHost.Visibility = expanded ? Visibility.Visible : Visibility.Collapsed;
+        if (expanded)
+        {
+            ExpandedContent.SetClockTextOverlayOwned(owned: true);
+        }
+        else
+        {
+            CompactContent.SetClockTextOverlayOwned(owned: true);
+        }
+
+        _contentMorphPrepared = false;
+        ContentRoot.UpdateLayout();
+    }
+
+    private void ReleaseClockOverlayOwnership()
+    {
+        // The target host is already at final geometry; release changes only
+        // the overlay and the opacity of the real target Clock TextBlocks.
+        ClockTransitionOverlay.Visibility = Visibility.Collapsed;
+        if (_clockOverlaySettledState == NotchState.Expanded)
+        {
+            ExpandedContent.SetClockTextOverlayOwned(owned: false);
+        }
+        else
+        {
+            CompactContent.SetClockTextOverlayOwned(owned: false);
+        }
+    }
+
+    private void ResumeClockOverlayMotion()
+    {
+        CancelClockOverlayCallbacks();
+        _clockOverlayHandoff.BeginMotion();
+    }
+
+    private void CancelClockOverlayHandoff(bool continueMoving)
+    {
+        CancelClockOverlayCallbacks();
+        _clockOverlayHandoff.Cancel(continueMoving);
+    }
+
+    private void InvalidateClockOverlayForContentChange()
+    {
+        if (!IsClockOverlayFinalizing)
+        {
+            return;
+        }
+
+        var continueMoving = _windowController.IsTransitionActive;
+        CancelClockOverlayHandoff(continueMoving);
+        _contentMorphPrepared = false;
+        if (!continueMoving)
+        {
+            SetContentStateImmediate(_stateMachine.VisualState == NotchState.Expanded
+                ? NotchState.Expanded
+                : NotchState.Compact);
+        }
+    }
+
+    private void CancelClockOverlayCallbacks()
+    {
+        _clockOverlayLayoutOperation?.Abort();
+        _clockOverlayLayoutOperation = null;
+        if (_clockOverlayRenderingSubscribed)
+        {
+            CompositionTarget.Rendering -= ClockOverlay_OnRendering;
+            _clockOverlayRenderingSubscribed = false;
+        }
+    }
+
+    private void MainWindow_OnDpiChanged(object sender, System.Windows.DpiChangedEventArgs e)
+    {
+        if (_disposed)
+        {
+            return;
+        }
+
+        var continueMoving = _windowController.IsTransitionActive;
+        CancelClockOverlayHandoff(continueMoving);
+        _contentMorphPrepared = false;
+        if (continueMoving)
+        {
+            PrepareContentMorph();
+            ApplyContentMorphFrame(_windowController.CurrentFrame.ExpansionProgress);
+        }
+        else
+        {
+            SetContentStateImmediate(_stateMachine.VisualState == NotchState.Expanded
+                ? NotchState.Expanded
+                : NotchState.Compact);
+        }
     }
 
     private static bool AreClockAnchorsUsable(ClockTextAnchors anchors) =>
         IsClockAnchorUsable(anchors.Title) &&
         IsClockAnchorUsable(anchors.Time) &&
         IsClockAnchorUsable(anchors.Date);
+
+    private static bool AreFinalClockAnchorsUsable(ClockTextAnchors anchors) =>
+        AreClockAnchorsUsable(anchors) &&
+        IsClockAnchorArranged(anchors.Title) &&
+        IsClockAnchorArranged(anchors.Time) &&
+        IsClockAnchorArranged(anchors.Date);
+
+    private static bool IsClockAnchorArranged(ClockTextAnchor anchor) =>
+        double.IsFinite(anchor.ArrangedTopLeft.X) &&
+        double.IsFinite(anchor.ArrangedTopLeft.Y) &&
+        double.IsFinite(anchor.RenderedWidth) &&
+        anchor.RenderedWidth > 0 &&
+        double.IsFinite(anchor.RenderedHeight) &&
+        anchor.RenderedHeight > 0;
 
     private static bool AreClockTypefacesCompatible(
         ClockTextAnchors compact,
@@ -717,20 +1220,23 @@ public partial class MainWindow : Window, IDisposable
 
         _disposed = true;
         _contentMorphPrepared = false;
+        CancelClockOverlayHandoff(continueMoving: false);
         ResetClockOverlayOwnership();
         _statusStore.Changed -= StatusStore_OnChanged;
         _stateMachine.StateChanged -= StateMachine_OnStateChanged;
         _monitorPlacementService.Changed -= MonitorPlacementService_OnChanged;
         _windowController.MotionFrameChanged -= WindowController_OnMotionFrameChanged;
+        _windowBlurService.AvailabilityChanged -= WindowBlurService_OnAvailabilityChanged;
         CompactContent.PinClicked -= Pin_OnClicked;
         ExpandedContent.PinClicked -= Pin_OnClicked;
         ExpandedContent.CollapseRequested -= ExpandedContent_OnCollapseRequested;
+        DpiChanged -= MainWindow_OnDpiChanged;
         _hotkeyService.Pressed -= HotkeyService_OnPressed;
         _hotkeyService.RegistrationFailed -= HotkeyService_OnRegistrationFailed;
         _hotkeyService.Dispose();
         _autoHideService.Dispose();
-        _windowController.Dispose();
         _windowBlurService.Dispose();
+        _windowController.Dispose();
         _monitorPlacementService.Dispose();
         if (_fullscreenSuppressionService is not null)
         {

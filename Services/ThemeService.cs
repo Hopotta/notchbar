@@ -76,6 +76,7 @@ public sealed class ThemeService : IDisposable
             ? new Dictionary<string, Brush>
             {
                 ["IslandBackground"] = Solid(0xB3, 0x14, 0x14, 0x14),
+                ["IslandGlassWash"] = Solid(0x55, 0x14, 0x14, 0x14),
                 ["IslandFallbackBackground"] = Vertical(
                     (Color.FromArgb(0xE8, 0x20, 0x20, 0x20), 0),
                     (Color.FromArgb(0xD8, 0x1A, 0x1A, 0x1A), 0.52),
@@ -112,6 +113,7 @@ public sealed class ThemeService : IDisposable
             : new Dictionary<string, Brush>
             {
                 ["IslandBackground"] = Solid(0xBF, 0xFF, 0xFF, 0xFF),
+                ["IslandGlassWash"] = Solid(0x50, 0xFF, 0xFF, 0xFF),
                 ["IslandFallbackBackground"] = Vertical(
                     (Color.FromArgb(0xEA, 0xF7, 0xFB, 0xFF), 0),
                     (Color.FromArgb(0xDE, 0xEA, 0xF2, 0xF7), 0.52),
