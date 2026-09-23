@@ -1,6 +1,5 @@
 using System.IO;
 using System.Windows;
-using System.Windows.Interop;
 using NotchBar.Core;
 using NotchBar.Services;
 
@@ -26,14 +25,6 @@ public partial class App : System.Windows.Application
     protected override async void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
-
-        if (BackdropInputProbe.IsChildMode(e.Args))
-        {
-            ShutdownMode = ShutdownMode.OnExplicitShutdown;
-            var exitCode = await BackdropInputProbe.RunChildAsync(e.Args);
-            Shutdown(exitCode);
-            return;
-        }
 
         _singleInstanceService = new SingleInstanceService();
         if (!_singleInstanceService.IsPrimary)
@@ -66,10 +57,7 @@ public partial class App : System.Windows.Application
         _mainWindow = new MainWindow(_statusStore, _settingsService);
         _mainWindow.PinStateChanged += MainWindow_OnPinStateChanged;
         MainWindow = _mainWindow;
-        _ = new WindowInteropHelper(_mainWindow).EnsureHandle();
-        await _mainWindow.InitializeBackdropAsync();
         _mainWindow.Show();
-        _mainWindow.ActivateBackdrop();
 
         _trayService = new TrayService();
         _trayService.ShowRequested += TrayService_OnShowRequested;

@@ -1,209 +1,290 @@
 using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Interop;
-using System.Windows.Media;
+using System.Windows.Threading;
 
 namespace NotchBar.Services;
 
 /// <summary>
-/// Coordinates the fail-closed composition-only backdrop window. The layered
-/// WPF HWND remains content/input only and never receives a native backdrop.
+/// Applies a bounded DWM blur region while leaving the visible rounded
+/// silhouette to WPF, whose vector rendering provides smoother anti-aliased
+/// corners than a pixel-based window region.
 /// </summary>
 public sealed class WindowBlurService : IDisposable
 {
+    private const uint DwmBbEnable = 0x00000001;
+    private const uint DwmBbBlurRegion = 0x00000002;
+    private const uint DwmNcRenderingPolicy = 6;
+    private const uint DwmWindowCornerPreference = 33;
+    private const int DwmNcRenderingDisabled = 2;
+    private const int DwmCornerDoNotRound = 1;
+    private const int RegionOr = 2;
+
     private readonly Window _window;
-    private readonly WindowController _windowController;
-    private readonly BackdropActivationGate _gate = new();
-    private readonly BackdropActivationPublicationGate _activationPublication = new();
-    private BackdropHostWindow? _hostWindow;
-    private CompositionBackdropHost? _compositionHost;
-    private bool _readyToActivate;
-    private bool _registered;
+    private IntPtr _hwnd;
+    private IntPtr _blurRegion;
+    private DispatcherOperation? _pendingRegionUpdate;
+    private int _appliedClientWidth = -1;
+    private int _appliedClientHeight = -1;
+    private uint _appliedDpi;
+    private bool _isApplied;
     private bool _disposed;
 
-    public WindowBlurService(Window window, WindowController windowController)
+    public WindowBlurService(Window window)
     {
         _window = window;
-        _windowController = windowController;
     }
 
-    public event EventHandler<BackdropAvailabilityChangedEventArgs>? AvailabilityChanged;
-
-    public PointerProbeEvidence? LastProbeEvidence { get; private set; }
-    public bool IsActive => _gate.CanShow && _registered;
-
-    public async Task<bool> InitializeAsync(CancellationToken cancellationToken = default)
+    public bool TryApply()
     {
-        if (_disposed || _readyToActivate || !OperatingSystem.IsWindows() || SystemParameters.HighContrast)
-        {
-            return _readyToActivate;
-        }
-
-        var mode = BackdropWindowPolicy.SelectActivationMode(
-            isWindows: true,
-            highContrast: SystemParameters.HighContrast,
-            compositionEnabled: CompositionBackdropHost.IsCompositionEnabled(),
-            windowsBuild: Environment.OSVersion.Version.Build);
-        if (mode == BackdropActivationMode.Fallback)
+        if (_disposed || !OperatingSystem.IsWindows() || SystemParameters.HighContrast)
         {
             return false;
         }
 
-        var generation = _gate.BeginInitialization();
-        try
+        if (_isApplied)
         {
-            var mainHandle = new WindowInteropHelper(_window).Handle;
-            if (mainHandle == IntPtr.Zero || !GetWindowRect(mainHandle, out var rect))
-            {
-                FailAndDestroy();
-                return false;
-            }
-
-            _hostWindow = new BackdropHostWindow();
-            _compositionHost = new CompositionBackdropHost(
-                _hostWindow.Handle,
-                mode,
-                ResolveTint);
-            var geometry = new WindowPixelGeometry(
-                rect.Left,
-                rect.Top,
-                Math.Max(1, rect.Right - rect.Left),
-                Math.Max(1, rect.Bottom - rect.Top));
-            _compositionHost.UpdateGeometry(geometry);
-            if (!await _compositionHost.PrepareAsync() || !_gate.MarkClipCommitted(generation))
-            {
-                System.Diagnostics.Debug.WriteLine(
-                    $"NotchBar composition backdrop preparation failed: {_compositionHost.LastFailure}");
-                FailAndDestroy();
-                return false;
-            }
-
-            // A layered transparent companion is the only tested topology that
-            // both preserves the committed HostBackdrop graph and allows the
-            // real pointer event to reach an unrelated underlying process.
-            if (!_hostWindow.EnableLayeredTransparency())
-            {
-                FailAndDestroy();
-                return false;
-            }
-
-            // A committed HostBackdrop graph is the frost capability candidate.
-            // Normal activation remains blocked on external-process delivery.
-            if (!_gate.BeginProbe(generation, frostObserved: true))
-            {
-                FailAndDestroy();
-                return false;
-            }
-
-            LastProbeEvidence = await BackdropInputProbe.RunParentAsync(_hostWindow, geometry, cancellationToken);
-            if (!_gate.CompleteProbe(generation, LastProbeEvidence.Value))
-            {
-                FailAndDestroy();
-                return false;
-            }
-
-            _readyToActivate = true;
+            QueueBackdropRegionUpdate();
             return true;
         }
-        catch (Exception exception)
+
+        try
         {
-            System.Diagnostics.Debug.WriteLine($"NotchBar backdrop initialization failed: {exception}");
-            FailAndDestroy();
+            _hwnd = new WindowInteropHelper(_window).Handle;
+            if (_hwnd == IntPtr.Zero)
+            {
+                return false;
+            }
+
+            SetWindowAttribute(DwmNcRenderingPolicy, DwmNcRenderingDisabled);
+            SetWindowAttribute(DwmWindowCornerPreference, DwmCornerDoNotRound);
+
+            UpdateBackdropRegion();
+            _window.SizeChanged += Window_OnSizeChanged;
+            _window.DpiChanged += Window_OnDpiChanged;
+            _isApplied = true;
+            return true;
+        }
+        catch (DllNotFoundException)
+        {
+            return false;
+        }
+        catch (EntryPointNotFoundException)
+        {
             return false;
         }
     }
 
-    public bool Activate()
+    public bool RefreshTheme() => TryApply();
+
+    private void Window_OnSizeChanged(object sender, SizeChangedEventArgs e)
     {
-        if (_disposed || !_readyToActivate || !_gate.CanShow ||
-            _hostWindow is null || _compositionHost is null || _registered)
+        QueueBackdropRegionUpdate();
+    }
+
+    private void Window_OnDpiChanged(object sender, System.Windows.DpiChangedEventArgs e)
+    {
+        QueueBackdropRegionUpdate();
+    }
+
+    private void QueueBackdropRegionUpdate()
+    {
+        if (_disposed || _hwnd == IntPtr.Zero || _pendingRegionUpdate is not null)
         {
-            return IsActive;
+            return;
         }
 
-        var hostWindow = _hostWindow;
-        var compositionHost = _compositionHost;
-        if (!_activationPublication.TryPublish(
-                () => _windowController.RegisterCompanion(
-                    hostWindow.Handle,
-                    compositionHost.UpdateGeometry,
-                    FailAndDestroy),
-                () => !_disposed &&
-                    _readyToActivate &&
-                    _gate.CanShow &&
-                    ReferenceEquals(_hostWindow, hostWindow) &&
-                    ReferenceEquals(_compositionHost, compositionHost) &&
-                    _windowController.IsCompanionRegistered(hostWindow.Handle),
-                FailAndDestroy))
+        // Coalesce repeated SizeChanged notifications, then update immediately
+        // before WPF presents the resulting animation frame.
+        _pendingRegionUpdate = _window.Dispatcher.BeginInvoke(
+            DispatcherPriority.Render,
+            new Action(ProcessPendingBackdropRegionUpdate));
+    }
+
+    private void ProcessPendingBackdropRegionUpdate()
+    {
+        _pendingRegionUpdate = null;
+        if (_disposed)
         {
-            return false;
+            return;
         }
 
-        _registered = true;
-        AvailabilityChanged?.Invoke(this, new BackdropAvailabilityChangedEventArgs(true));
-        return true;
-    }
-
-    public bool RefreshTheme()
-    {
-        return !_disposed && _compositionHost?.RefreshTheme() == true && IsActive;
-    }
-
-    public void SetSuppressed(bool suppressed)
-    {
-        if (_disposed) return;
-        _gate.SetSuppressed(suppressed);
-        _windowController.SetCompanionActive(!suppressed && _readyToActivate && _registered);
-    }
-
-    private System.Windows.Media.Color ResolveTint()
-    {
-        return _window.TryFindResource("IslandBackground") is SolidColorBrush brush
-            ? brush.Color
-            : System.Windows.Media.Color.FromRgb(0x20, 0x20, 0x20);
-    }
-
-    private void FailAndDestroy()
-    {
-        if (_disposed) return;
-        _activationPublication.Fail(CleanupFailedBackdrop);
-    }
-
-    private void CleanupFailedBackdrop()
-    {
-        var wasActive = IsActive;
-        _readyToActivate = false;
-        _registered = false;
-        _gate.Fail();
-        _windowController.UnregisterCompanion();
-        _compositionHost?.Dispose();
-        _compositionHost = null;
-        _hostWindow?.Dispose();
-        _hostWindow = null;
-        if (wasActive)
+        try
         {
-            AvailabilityChanged?.Invoke(this, new BackdropAvailabilityChangedEventArgs(false));
+            UpdateBackdropRegion();
+        }
+        catch (DllNotFoundException)
+        {
+            // Keep the WPF fallback if DWM disappears during the window lifetime.
+        }
+        catch (EntryPointNotFoundException)
+        {
+            // Older Windows builds may not expose every API used here.
+        }
+    }
+
+    private void UpdateBackdropRegion()
+    {
+        if (_hwnd == IntPtr.Zero || _disposed || !GetClientRect(_hwnd, out var clientRect))
+        {
+            return;
+        }
+
+        var width = Math.Max(1, clientRect.Right - clientRect.Left);
+        var height = Math.Max(1, clientRect.Bottom - clientRect.Top);
+        var dpi = GetDpi(_hwnd);
+        if (width == _appliedClientWidth && height == _appliedClientHeight && dpi == _appliedDpi)
+        {
+            return;
+        }
+
+        var radius = Math.Clamp((int)Math.Round(20d * dpi / 96d), 1, Math.Min(width, height) / 2);
+        var replacementRegion = CreateIslandRegion(width, height, radius);
+        if (replacementRegion == IntPtr.Zero)
+        {
+            return;
+        }
+
+        try
+        {
+            var blurBehind = new DwmBlurBehind
+            {
+                Flags = DwmBbEnable | DwmBbBlurRegion,
+                Enable = true,
+                BlurRegion = replacementRegion,
+                TransitionOnMaximized = false
+            };
+
+            if (DwmEnableBlurBehindWindow(_hwnd, ref blurBehind) != 0)
+            {
+                return;
+            }
+
+            // DWM accepts the replacement before the previous HRGN is freed,
+            // avoiding a one-frame full-window rectangle during resize.
+            var previousRegion = _blurRegion;
+            _blurRegion = replacementRegion;
+            replacementRegion = IntPtr.Zero;
+            _appliedClientWidth = width;
+            _appliedClientHeight = height;
+            _appliedDpi = dpi;
+
+            if (previousRegion != IntPtr.Zero)
+            {
+                DeleteObject(previousRegion);
+            }
+        }
+        finally
+        {
+            if (replacementRegion != IntPtr.Zero)
+            {
+                DeleteObject(replacementRegion);
+            }
+        }
+    }
+
+    private static IntPtr CreateIslandRegion(int width, int height, int radius)
+    {
+        var rounded = CreateRoundRectRgn(0, 0, width + 1, height + 1, radius * 2, radius * 2);
+        if (rounded == IntPtr.Zero)
+        {
+            return IntPtr.Zero;
+        }
+
+        // Preserve the square top edge that touches the screen and only round
+        // the bottom silhouette. This HRGN clips DWM blur; it is not a window region.
+        var topHeight = Math.Min(radius, height);
+        var top = CreateRectRgn(0, 0, width + 1, topHeight + 1);
+        if (top != IntPtr.Zero)
+        {
+            CombineRgn(rounded, rounded, top, RegionOr);
+            DeleteObject(top);
+        }
+
+        return rounded;
+    }
+
+    private void SetWindowAttribute(uint attribute, int value)
+    {
+        _ = DwmSetWindowAttribute(_hwnd, attribute, ref value, sizeof(int));
+    }
+
+    private void DisableBlurRegion()
+    {
+        var blurRegion = _blurRegion;
+        _blurRegion = IntPtr.Zero;
+        _appliedClientWidth = -1;
+        _appliedClientHeight = -1;
+        _appliedDpi = 0;
+
+        if (blurRegion == IntPtr.Zero)
+        {
+            return;
+        }
+
+        try
+        {
+            var blurBehind = new DwmBlurBehind
+            {
+                Flags = DwmBbEnable,
+                Enable = false,
+                BlurRegion = IntPtr.Zero,
+                TransitionOnMaximized = false
+            };
+
+            if (_hwnd != IntPtr.Zero)
+            {
+                _ = DwmEnableBlurBehindWindow(_hwnd, ref blurBehind);
+            }
+        }
+        finally
+        {
+            DeleteObject(blurRegion);
+        }
+    }
+
+    private static uint GetDpi(IntPtr hwnd)
+    {
+        try
+        {
+            var dpi = GetDpiForWindow(hwnd);
+            return dpi == 0 ? 96u : dpi;
+        }
+        catch (EntryPointNotFoundException)
+        {
+            return 96u;
         }
     }
 
     public void Dispose()
     {
-        if (_disposed) return;
-        var wasActive = IsActive;
-        _readyToActivate = false;
-        _registered = false;
-        _gate.Destroy();
-        _windowController.UnregisterCompanion();
-        _compositionHost?.Dispose();
-        _compositionHost = null;
-        _hostWindow?.Dispose();
-        _hostWindow = null;
-        _disposed = true;
-        if (wasActive)
+        if (_disposed)
         {
-            AvailabilityChanged?.Invoke(this, new BackdropAvailabilityChangedEventArgs(false));
+            return;
         }
+
+        _disposed = true;
+        _pendingRegionUpdate?.Abort();
+        _pendingRegionUpdate = null;
+        _window.SizeChanged -= Window_OnSizeChanged;
+        _window.DpiChanged -= Window_OnDpiChanged;
+        _isApplied = false;
+        DisableBlurRegion();
         GC.SuppressFinalize(this);
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct DwmBlurBehind
+    {
+        public uint Flags;
+
+        [MarshalAs(UnmanagedType.Bool)]
+        public bool Enable;
+
+        public IntPtr BlurRegion;
+
+        [MarshalAs(UnmanagedType.Bool)]
+        public bool TransitionOnMaximized;
     }
 
     [StructLayout(LayoutKind.Sequential)]
@@ -215,12 +296,27 @@ public sealed class WindowBlurService : IDisposable
         public int Bottom;
     }
 
-    [DllImport("user32.dll")]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    private static extern bool GetWindowRect(IntPtr hwnd, out Rect rect);
-}
+    [DllImport("dwmapi.dll")]
+    private static extern int DwmEnableBlurBehindWindow(IntPtr hwnd, ref DwmBlurBehind blurBehind);
 
-public sealed class BackdropAvailabilityChangedEventArgs(bool isActive) : EventArgs
-{
-    public bool IsActive { get; } = isActive;
+    [DllImport("dwmapi.dll")]
+    private static extern int DwmSetWindowAttribute(IntPtr hwnd, uint attribute, ref int value, int size);
+
+    [DllImport("user32.dll")]
+    private static extern bool GetClientRect(IntPtr hwnd, out Rect rect);
+
+    [DllImport("user32.dll")]
+    private static extern uint GetDpiForWindow(IntPtr hwnd);
+
+    [DllImport("gdi32.dll")]
+    private static extern IntPtr CreateRoundRectRgn(int left, int top, int right, int bottom, int width, int height);
+
+    [DllImport("gdi32.dll")]
+    private static extern IntPtr CreateRectRgn(int left, int top, int right, int bottom);
+
+    [DllImport("gdi32.dll")]
+    private static extern int CombineRgn(IntPtr destination, IntPtr source1, IntPtr source2, int mode);
+
+    [DllImport("gdi32.dll")]
+    private static extern bool DeleteObject(IntPtr objectHandle);
 }

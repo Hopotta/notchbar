@@ -92,14 +92,9 @@ public partial class CompactView : UserControl
         GetUntranslatedCenter(PinButton, _pinTranslate, ancestor));
 
     public ClockTextAnchors CaptureClockTextAnchors(UIElement ancestor) => new(
-        CaptureTextAnchor(TitleText, _titleTranslate, ancestor, false, ref _titleBaselineMetrics),
-        CaptureTextAnchor(SummaryText, _summaryTranslate, ancestor, false, ref _summaryBaselineMetrics),
-        CaptureTextAnchor(SecondaryText, _secondaryTranslate, ancestor, false, ref _secondaryBaselineMetrics));
-
-    public ClockTextAnchors CaptureFinalClockTextAnchors(UIElement ancestor) => new(
-        CaptureTextAnchor(TitleText, _titleTranslate, ancestor, true, ref _titleBaselineMetrics),
-        CaptureTextAnchor(SummaryText, _summaryTranslate, ancestor, true, ref _summaryBaselineMetrics),
-        CaptureTextAnchor(SecondaryText, _secondaryTranslate, ancestor, true, ref _secondaryBaselineMetrics));
+        CaptureTextAnchor(TitleText, _titleTranslate, ancestor, ref _titleBaselineMetrics),
+        CaptureTextAnchor(SummaryText, _summaryTranslate, ancestor, ref _summaryBaselineMetrics),
+        CaptureTextAnchor(SecondaryText, _secondaryTranslate, ancestor, ref _secondaryBaselineMetrics));
 
     public void ApplyTransition(
         TransitionChoreographyFrame frame,
@@ -145,7 +140,6 @@ public partial class CompactView : UserControl
         TextBlock element,
         TranslateTransform translation,
         UIElement ancestor,
-        bool preferArrangedBaseline,
         ref TextBaselineMetrics? baselineMetrics)
     {
         var dpi = VisualTreeHelper.GetDpi(element);
@@ -178,11 +172,7 @@ public partial class CompactView : UserControl
             baselineMetrics = metrics;
         }
 
-        var baselineFromTop = preferArrangedBaseline &&
-            double.IsFinite(element.BaselineOffset) &&
-            element.BaselineOffset > 0
-                ? element.BaselineOffset
-                : metrics.BaselineFromTop;
+        var baselineFromTop = metrics.BaselineFromTop;
         var leadingX = element.FlowDirection == System.Windows.FlowDirection.RightToLeft
             ? element.ActualWidth
             : 0d;
