@@ -66,6 +66,63 @@ public sealed class WindowBlurServiceTests
         Assert.False(gate.CanShow);
     }
 
+    [Fact]
+    public void ImmediatePairedCommitFailure_CannotPublishAndCleansUpOnce()
+    {
+        var publication = new BackdropActivationPublicationGate();
+        var companionStillValid = true;
+        var cleanupCount = 0;
+
+        var activated = publication.TryPublish(
+            register: () =>
+            {
+                companionStillValid = false;
+                publication.Fail(() => cleanupCount++);
+                return false;
+            },
+            isStillValid: () => companionStillValid,
+            rollback: () => cleanupCount++);
+
+        Assert.False(activated);
+        Assert.False(publication.IsPublished);
+        Assert.Equal(1, cleanupCount);
+
+        publication.Fail(() => cleanupCount++);
+        Assert.Equal(1, cleanupCount);
+    }
+
+    [Fact]
+    public void InvalidatedAfterNativeRegistration_CannotPublishAvailability()
+    {
+        var publication = new BackdropActivationPublicationGate();
+        var cleanupCount = 0;
+
+        var activated = publication.TryPublish(
+            register: () => true,
+            isStillValid: () => false,
+            rollback: () => cleanupCount++);
+
+        Assert.False(activated);
+        Assert.False(publication.IsPublished);
+        Assert.Equal(1, cleanupCount);
+    }
+
+    [Fact]
+    public void SuccessfulInitialGeometryCommit_PublishesOnlyAfterValidityCheck()
+    {
+        var publication = new BackdropActivationPublicationGate();
+        var validityChecked = false;
+
+        var activated = publication.TryPublish(
+            register: () => true,
+            isStillValid: () => validityChecked = true,
+            rollback: () => throw new InvalidOperationException("Rollback must not run."));
+
+        Assert.True(activated);
+        Assert.True(validityChecked);
+        Assert.True(publication.IsPublished);
+    }
+
     private static PointerProbeEvidence VerifiedEvidence() => new(
         DownReceived: true,
         UpReceived: true,

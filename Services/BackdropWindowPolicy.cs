@@ -141,6 +141,111 @@ public sealed class BackdropActivationGate
         generation == _generation && State == state;
 }
 
+/// <summary>
+/// Prevents a callback-capable initial geometry commit from publishing an
+/// already-invalid companion. A native commit failure can synchronously tear
+/// down the backdrop while registration is still on the stack.
+/// </summary>
+public sealed class BackdropActivationPublicationGate
+{
+    private bool _invalidated;
+
+    public bool IsPublished { get; private set; }
+
+    public bool TryPublish(
+        Func<bool> register,
+        Func<bool> isStillValid,
+        Action rollback)
+    {
+        if (IsPublished)
+        {
+            return true;
+        }
+
+        if (_invalidated)
+        {
+            return false;
+        }
+
+        bool registered;
+        try
+        {
+            registered = register();
+        }
+        catch
+        {
+            Fail(rollback);
+            return false;
+        }
+
+        if (!registered || _invalidated || !isStillValid())
+        {
+            Fail(rollback);
+            return false;
+        }
+
+        IsPublished = true;
+        return true;
+    }
+
+    public void Fail(Action rollback)
+    {
+        if (_invalidated)
+        {
+            return;
+        }
+
+        _invalidated = true;
+        IsPublished = false;
+        rollback();
+    }
+}
+
+public readonly record struct BackdropProbeIdentity(int ProcessId, nint WindowHandle);
+
+public static class BackdropProbeIdentityPolicy
+{
+    public static bool MatchesSession(
+        string expectedNonce,
+        string expectedKind,
+        string? reportedNonce,
+        string? reportedKind) =>
+        !string.IsNullOrEmpty(expectedNonce) &&
+        reportedNonce == expectedNonce &&
+        reportedKind == expectedKind;
+
+    public static bool TryBind(
+        int launchedProcessId,
+        int reportedProcessId,
+        nint reportedWindow,
+        bool windowExists,
+        int nativeOwnerProcessId,
+        out BackdropProbeIdentity identity)
+    {
+        identity = default;
+        if (launchedProcessId <= 0 ||
+            reportedProcessId != launchedProcessId ||
+            reportedWindow == 0 ||
+            !windowExists ||
+            nativeOwnerProcessId != launchedProcessId)
+        {
+            return false;
+        }
+
+        identity = new BackdropProbeIdentity(launchedProcessId, reportedWindow);
+        return true;
+    }
+
+    public static bool Matches(
+        BackdropProbeIdentity identity,
+        int reportedProcessId,
+        nint reportedWindow) =>
+        identity.ProcessId > 0 &&
+        reportedProcessId == identity.ProcessId &&
+        identity.WindowHandle != 0 &&
+        reportedWindow == identity.WindowHandle;
+}
+
 public readonly record struct PointerProbeEvidence(
     bool DownReceived,
     bool UpReceived,

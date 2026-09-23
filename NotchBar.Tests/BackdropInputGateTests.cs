@@ -64,6 +64,81 @@ public sealed class BackdropInputGateTests
         Assert.False(gate.CanShow);
     }
 
+    [Fact]
+    public void ProbeIdentity_BindsExactLaunchedProcessAndNativeWindowOwner()
+    {
+        Assert.True(BackdropProbeIdentityPolicy.TryBind(
+            launchedProcessId: 42,
+            reportedProcessId: 42,
+            reportedWindow: 101,
+            windowExists: true,
+            nativeOwnerProcessId: 42,
+            out var identity));
+
+        Assert.Equal(new BackdropProbeIdentity(42, 101), identity);
+        Assert.True(BackdropProbeIdentityPolicy.Matches(identity, 42, 101));
+    }
+
+    [Theory]
+    [InlineData(99, 101, true, 99)]
+    [InlineData(42, 101, true, 99)]
+    [InlineData(42, 0, true, 42)]
+    [InlineData(42, 101, false, 42)]
+    public void ProbeIdentity_RejectsSpoofedOrUnownedReadiness(
+        int reportedProcessId,
+        long reportedWindow,
+        bool windowExists,
+        int nativeOwnerProcessId)
+    {
+        Assert.False(BackdropProbeIdentityPolicy.TryBind(
+            launchedProcessId: 42,
+            reportedProcessId,
+            new IntPtr(reportedWindow),
+            windowExists,
+            nativeOwnerProcessId,
+            out _));
+    }
+
+    [Theory]
+    [InlineData(99, 101)]
+    [InlineData(42, 202)]
+    [InlineData(0, 101)]
+    public void ProbeIdentity_RejectsStaleOrMismatchedSessionReports(
+        int reportedProcessId,
+        long reportedWindow)
+    {
+        var identity = new BackdropProbeIdentity(42, 101);
+        Assert.False(BackdropProbeIdentityPolicy.Matches(
+            identity,
+            reportedProcessId,
+            new IntPtr(reportedWindow)));
+    }
+
+    [Theory]
+    [InlineData("wrong-nonce", "ready")]
+    [InlineData("session-nonce", "result")]
+    [InlineData("", "ready")]
+    public void ProbeSession_RejectsWrongNonceKindOrEmptySession(
+        string reportedNonce,
+        string reportedKind)
+    {
+        Assert.False(BackdropProbeIdentityPolicy.MatchesSession(
+            expectedNonce: "session-nonce",
+            expectedKind: "ready",
+            reportedNonce,
+            reportedKind));
+    }
+
+    [Fact]
+    public void ProbeSession_AcceptsOnlyExactNonceAndKind()
+    {
+        Assert.True(BackdropProbeIdentityPolicy.MatchesSession(
+            expectedNonce: "session-nonce",
+            expectedKind: "ready",
+            reportedNonce: "session-nonce",
+            reportedKind: "ready"));
+    }
+
     private static BackdropActivationGate ReadyGate(out long generation)
     {
         var gate = new BackdropActivationGate();

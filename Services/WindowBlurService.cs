@@ -14,6 +14,7 @@ public sealed class WindowBlurService : IDisposable
     private readonly Window _window;
     private readonly WindowController _windowController;
     private readonly BackdropActivationGate _gate = new();
+    private readonly BackdropActivationPublicationGate _activationPublication = new();
     private BackdropHostWindow? _hostWindow;
     private CompositionBackdropHost? _compositionHost;
     private bool _readyToActivate;
@@ -120,10 +121,24 @@ public sealed class WindowBlurService : IDisposable
             return IsActive;
         }
 
-        _windowController.RegisterCompanion(
-            _hostWindow.Handle,
-            _compositionHost.UpdateGeometry,
-            FailAndDestroy);
+        var hostWindow = _hostWindow;
+        var compositionHost = _compositionHost;
+        if (!_activationPublication.TryPublish(
+                () => _windowController.RegisterCompanion(
+                    hostWindow.Handle,
+                    compositionHost.UpdateGeometry,
+                    FailAndDestroy),
+                () => !_disposed &&
+                    _readyToActivate &&
+                    _gate.CanShow &&
+                    ReferenceEquals(_hostWindow, hostWindow) &&
+                    ReferenceEquals(_compositionHost, compositionHost) &&
+                    _windowController.IsCompanionRegistered(hostWindow.Handle),
+                FailAndDestroy))
+        {
+            return false;
+        }
+
         _registered = true;
         AvailabilityChanged?.Invoke(this, new BackdropAvailabilityChangedEventArgs(true));
         return true;
@@ -151,6 +166,11 @@ public sealed class WindowBlurService : IDisposable
     private void FailAndDestroy()
     {
         if (_disposed) return;
+        _activationPublication.Fail(CleanupFailedBackdrop);
+    }
+
+    private void CleanupFailedBackdrop()
+    {
         var wasActive = IsActive;
         _readyToActivate = false;
         _registered = false;

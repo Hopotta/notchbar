@@ -94,6 +94,7 @@ public static class BackdropInputProbe
         var focusBefore = GetFocusWindow(foregroundBefore);
         ProbeMessage? ready = null;
         ProbeMessage? result = null;
+        BackdropProbeIdentity? expectedIdentity = null;
         var timedOut = false;
         try
         {
@@ -101,15 +102,18 @@ public static class BackdropInputProbe
             using var reader = new StreamReader(pipe);
             await using var writer = new StreamWriter(pipe) { AutoFlush = true };
             ready = Deserialize(await reader.ReadLineAsync(linkedTimeout.Token), nonce, "ready");
-            if (ready is null)
+            if (ready is null || !TryBindLaunchedHelper(process.Id, ready.Value, out var identity))
             {
-                throw new InvalidDataException("The backdrop input probe returned invalid readiness evidence.");
+                throw new InvalidDataException("The backdrop input probe readiness identity did not match the launched helper process and native HWND owner.");
             }
+            expectedIdentity = identity;
 
             var arm = new ProbeMessage(nonce, "arm", Environment.ProcessId, 0, false, false);
             await writer.WriteLineAsync(JsonSerializer.Serialize(arm));
             var armed = Deserialize(await reader.ReadLineAsync(linkedTimeout.Token), nonce, "armed");
-            if (armed is null || armed.Value.WindowHandle != ready.Value.WindowHandle || armed.Value.ProcessId != ready.Value.ProcessId)
+            if (armed is null ||
+                !BackdropProbeIdentityPolicy.Matches(identity, armed.Value.ProcessId, new IntPtr(armed.Value.WindowHandle)) ||
+                !IsIdentityStillOwnedByLaunchedHelper(identity))
             {
                 throw new InvalidDataException("The backdrop input probe did not reach a live dispatcher boundary.");
             }
@@ -137,7 +141,17 @@ public static class BackdropInputProbe
                 companion.Hide();
             }
 
-            result = Deserialize(await reader.ReadLineAsync(linkedTimeout.Token), nonce, "result");
+            var reportedResult = Deserialize(await reader.ReadLineAsync(linkedTimeout.Token), nonce, "result");
+            if (reportedResult is null ||
+                !BackdropProbeIdentityPolicy.Matches(
+                    identity,
+                    reportedResult.Value.ProcessId,
+                    new IntPtr(reportedResult.Value.WindowHandle)))
+            {
+                throw new InvalidDataException("The backdrop input probe result did not match the bound helper session identity.");
+            }
+
+            result = reportedResult;
         }
         catch (OperationCanceledException)
         {
@@ -162,9 +176,9 @@ public static class BackdropInputProbe
         return new PointerProbeEvidence(
             result?.Down ?? false,
             result?.Up ?? false,
-            ready?.ProcessId ?? process.Id,
+            process.Id,
             result?.ProcessId ?? 0,
-            new IntPtr(ready?.WindowHandle ?? 0),
+            expectedIdentity?.WindowHandle ?? IntPtr.Zero,
             new IntPtr(result?.WindowHandle ?? 0),
             foregroundBefore,
             foregroundAfter,
@@ -173,11 +187,45 @@ public static class BackdropInputProbe
             timedOut);
     }
 
+    private static bool TryBindLaunchedHelper(
+        int launchedProcessId,
+        ProbeMessage ready,
+        out BackdropProbeIdentity identity)
+    {
+        var reportedWindow = new IntPtr(ready.WindowHandle);
+        var exists = reportedWindow != IntPtr.Zero && IsWindow(reportedWindow);
+        uint nativeOwnerProcessId = 0;
+        var threadId = exists
+            ? GetWindowThreadProcessId(reportedWindow, out nativeOwnerProcessId)
+            : 0;
+        return BackdropProbeIdentityPolicy.TryBind(
+            launchedProcessId,
+            ready.ProcessId,
+            reportedWindow,
+            exists && threadId != 0,
+            threadId == 0 ? 0 : unchecked((int)nativeOwnerProcessId),
+            out identity);
+    }
+
+    private static bool IsIdentityStillOwnedByLaunchedHelper(BackdropProbeIdentity identity)
+    {
+        if (identity.WindowHandle == 0 || !IsWindow(identity.WindowHandle))
+        {
+            return false;
+        }
+
+        var threadId = GetWindowThreadProcessId(identity.WindowHandle, out var nativeOwnerProcessId);
+        return threadId != 0 && nativeOwnerProcessId == unchecked((uint)identity.ProcessId);
+    }
+
     private static ProbeMessage? Deserialize(string? json, string nonce, string kind)
     {
         if (string.IsNullOrWhiteSpace(json)) return null;
         var message = JsonSerializer.Deserialize<ProbeMessage>(json);
-        return message is { } value && value.Nonce == nonce && value.Kind == kind ? value : null;
+        return message is { } value &&
+            BackdropProbeIdentityPolicy.MatchesSession(nonce, kind, value.Nonce, value.Kind)
+            ? value
+            : null;
     }
 
     private static IntPtr GetFocusWindow(IntPtr foreground)
@@ -367,6 +415,9 @@ public static class BackdropInputProbe
     private static extern IntPtr GetForegroundWindow();
     [DllImport("user32.dll")]
     private static extern uint GetWindowThreadProcessId(IntPtr hwnd, out uint processId);
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool IsWindow(IntPtr hwnd);
     [DllImport("user32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]
     private static extern bool GetGUIThreadInfo(uint threadId, ref GuiThreadInfo info);

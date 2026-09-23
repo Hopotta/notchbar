@@ -59,7 +59,7 @@ public sealed class WindowController : IDisposable
 
     public bool IsTransitionActive => _transitionActive;
 
-    public void RegisterCompanion(
+    public bool RegisterCompanion(
         IntPtr handle,
         Action<WindowPixelGeometry> geometryChanged,
         Action commitFailed)
@@ -74,7 +74,14 @@ public sealed class WindowController : IDisposable
         _companionCommitFailed = commitFailed;
         _companionActive = true;
         CommitFrame(_motion.Current);
+        return IsCompanionRegistered(handle);
     }
+
+    public bool IsCompanionRegistered(IntPtr handle) =>
+        !_disposed &&
+        handle != IntPtr.Zero &&
+        _companionActive &&
+        _companionHandle == handle;
 
     public void UnregisterCompanion()
     {
