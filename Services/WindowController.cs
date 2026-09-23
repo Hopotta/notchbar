@@ -24,6 +24,9 @@ public sealed class WindowController : IDisposable
     private const uint SwpNoSize = 0x0001;
     private const uint SwpNoZOrder = 0x0004;
     private const uint SwpNoActivate = 0x0010;
+    private const uint SwpShowWindow = 0x0040;
+    private const int SwHide = 0;
+    private static readonly IntPtr HwndTopmost = new(-1);
 
     private readonly Window _window;
     private readonly WindowTransitionMotion _motion = new();
@@ -34,6 +37,10 @@ public sealed class WindowController : IDisposable
     private bool _committingGeometry;
     private bool _needsDpiHandshake = true;
     private bool _isSuppressed;
+    private IntPtr _companionHandle;
+    private Action<WindowPixelGeometry>? _companionGeometryChanged;
+    private Action? _companionCommitFailed;
+    private bool _companionActive;
     private bool _disposed;
 
     public WindowController(Window window, MonitorTarget monitor)
@@ -51,6 +58,42 @@ public sealed class WindowController : IDisposable
     public WindowMotionFrame CurrentFrame => _motion.Current;
 
     public bool IsTransitionActive => _transitionActive;
+
+    public void RegisterCompanion(
+        IntPtr handle,
+        Action<WindowPixelGeometry> geometryChanged,
+        Action commitFailed)
+    {
+        if (_disposed || handle == IntPtr.Zero)
+        {
+            throw new ArgumentException("A live companion HWND is required.", nameof(handle));
+        }
+
+        _companionHandle = handle;
+        _companionGeometryChanged = geometryChanged;
+        _companionCommitFailed = commitFailed;
+        _companionActive = true;
+        CommitFrame(_motion.Current);
+    }
+
+    public void UnregisterCompanion()
+    {
+        if (_companionHandle != IntPtr.Zero)
+        {
+            _ = ShowWindow(_companionHandle, SwHide);
+        }
+
+        _companionActive = false;
+        _companionHandle = IntPtr.Zero;
+        _companionGeometryChanged = null;
+        _companionCommitFailed = null;
+    }
+
+    public void SetCompanionActive(bool active)
+    {
+        _companionActive = active && _companionHandle != IntPtr.Zero;
+        CommitFrame(_motion.Current);
+    }
 
     public void Attach()
     {
@@ -243,19 +286,94 @@ public sealed class WindowController : IDisposable
         _committingGeometry = true;
         try
         {
-            _ = SetWindowPos(
-                _handle,
-                IntPtr.Zero,
-                geometry.X,
-                geometry.Y,
-                geometry.Width,
-                geometry.Height,
-                SwpNoZOrder | SwpNoActivate);
+            var companionDecision = BackdropWindowPolicy.DecideGeometry(
+                geometry,
+                _companionActive,
+                _isSuppressed,
+                _companionHandle == IntPtr.Zero);
+            if (companionDecision.ShouldShow && !CommitPairedGeometry(companionDecision.Bounds))
+            {
+                FailCompanionCommit();
+                _ = SetWindowPos(
+                    _handle,
+                    IntPtr.Zero,
+                    geometry.X,
+                    geometry.Y,
+                    geometry.Width,
+                    geometry.Height,
+                    SwpNoZOrder | SwpNoActivate);
+            }
+            else if (!companionDecision.ShouldShow)
+            {
+                if (_companionHandle != IntPtr.Zero)
+                {
+                    _ = ShowWindow(_companionHandle, SwHide);
+                }
+
+                _ = SetWindowPos(
+                    _handle,
+                    IntPtr.Zero,
+                    geometry.X,
+                    geometry.Y,
+                    geometry.Width,
+                    geometry.Height,
+                    SwpNoZOrder | SwpNoActivate);
+            }
         }
         finally
         {
             _committingGeometry = false;
         }
+    }
+
+    private bool CommitPairedGeometry(WindowPixelGeometry geometry)
+    {
+        var deferred = BeginDeferWindowPos(2);
+        if (deferred == IntPtr.Zero)
+        {
+            return false;
+        }
+
+        deferred = DeferWindowPos(
+            deferred,
+            _handle,
+            HwndTopmost,
+            geometry.X,
+            geometry.Y,
+            geometry.Width,
+            geometry.Height,
+            SwpNoActivate | SwpShowWindow);
+        if (deferred == IntPtr.Zero)
+        {
+            return false;
+        }
+
+        // Ordering the companion immediately after the main HWND keeps it one
+        // z-order slot below the island while the transaction moves both as a
+        // single animation-frame commit.
+        deferred = DeferWindowPos(
+            deferred,
+            _companionHandle,
+            _handle,
+            geometry.X,
+            geometry.Y,
+            geometry.Width,
+            geometry.Height,
+            SwpNoActivate | SwpShowWindow);
+        if (deferred == IntPtr.Zero || !EndDeferWindowPos(deferred))
+        {
+            return false;
+        }
+
+        _companionGeometryChanged?.Invoke(geometry);
+        return true;
+    }
+
+    private void FailCompanionCommit()
+    {
+        var failure = _companionCommitFailed;
+        UnregisterCompanion();
+        failure?.Invoke();
     }
 
     private void NotifyFrame()
@@ -293,6 +411,7 @@ public sealed class WindowController : IDisposable
         _window.BeginAnimation(FrameworkElement.WidthProperty, null);
         _window.BeginAnimation(FrameworkElement.HeightProperty, null);
         _window.SizeChanged -= Window_OnSizeChanged;
+        UnregisterCompanion();
     }
 
     [DllImport("user32.dll", SetLastError = true)]
@@ -305,6 +424,28 @@ public sealed class WindowController : IDisposable
         int cx,
         int cy,
         uint flags);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern IntPtr BeginDeferWindowPos(int numberOfWindows);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern IntPtr DeferWindowPos(
+        IntPtr deferredWindowPosition,
+        IntPtr hwnd,
+        IntPtr insertAfter,
+        int x,
+        int y,
+        int width,
+        int height,
+        uint flags);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool EndDeferWindowPos(IntPtr deferredWindowPosition);
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool ShowWindow(IntPtr hwnd, int command);
 
     [DllImport("user32.dll")]
     private static extern uint GetDpiForWindow(IntPtr hWnd);

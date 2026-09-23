@@ -82,6 +82,25 @@ public sealed class WindowTransitionMotionTests
         Assert.Equal(expectedY, geometry.Y);
     }
 
+    [Theory]
+    [InlineData(false, false, false, false)]
+    [InlineData(true, true, false, false)]
+    [InlineData(true, false, true, false)]
+    [InlineData(true, false, false, true)]
+    public void CompanionGeometry_MatchesMainAndHonorsVisibilityPolicy(
+        bool active,
+        bool suppressed,
+        bool destroyed,
+        bool expectedVisible)
+    {
+        var main = new WindowPixelGeometry(100, 0, 424, 148);
+        var companion = BackdropWindowPolicy.DecideGeometry(main, active, suppressed, destroyed);
+
+        Assert.Equal(main, companion.Bounds);
+        Assert.Equal(expectedVisible, companion.ShouldShow);
+        Assert.True(companion.MainPrecedesCompanion);
+    }
+
     [Fact]
     public void ExpandedToHidden_RetargetsWithoutGeometryJumpAndSettlesHidden()
     {

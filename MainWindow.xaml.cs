@@ -41,6 +41,7 @@ public partial class MainWindow : Window, IDisposable
     private bool _clockOverlayRenderingSubscribed;
     private long _clockOverlayRenderingGeneration;
     private NotchState _clockOverlaySettledState = NotchState.Compact;
+    private Task<bool> _backdropInitializationTask = Task.FromResult(false);
     private bool _disposed;
 
     public MainWindow(StatusStore statusStore, SettingsService settings)
@@ -57,7 +58,8 @@ public partial class MainWindow : Window, IDisposable
 
         _monitorPlacementService = new MonitorPlacementService(_settings.MonitorMode);
         _windowController = new WindowController(this, _monitorPlacementService.Current);
-        _windowBlurService = new WindowBlurService(this);
+        _windowBlurService = new WindowBlurService(this, _windowController);
+        _windowBlurService.AvailabilityChanged += WindowBlurService_OnAvailabilityChanged;
         _autoHideService = new AutoHideService(_stateMachine, _settings.AutoHideDelay);
         if (_settings.HideInFullscreen)
         {
@@ -81,6 +83,16 @@ public partial class MainWindow : Window, IDisposable
     public event EventHandler? PinStateChanged;
 
     public bool IsPinned => _stateMachine.IsPinned;
+
+    public Task<bool> InitializeBackdropAsync() => _backdropInitializationTask;
+
+    public void ActivateBackdrop()
+    {
+        if (!_disposed)
+        {
+            ApplyBackdropVisual(_windowBlurService.Activate());
+        }
+    }
 
     public void RefreshTheme()
     {
@@ -173,7 +185,8 @@ public partial class MainWindow : Window, IDisposable
         }
 
         _windowController.Attach();
-        ApplyBackdropVisual(_windowBlurService.TryApply());
+        ApplyBackdropVisual(backdropActive: false);
+        _backdropInitializationTask = _windowBlurService.InitializeAsync();
 
         _monitorPlacementService.Start();
         _hotkeyService.Pressed += HotkeyService_OnPressed;
@@ -230,6 +243,7 @@ public partial class MainWindow : Window, IDisposable
         }
 
         _isFullscreenSuppressed = e.IsSuppressed;
+        _windowBlurService.SetSuppressed(_isFullscreenSuppressed);
         _windowController.SetSuppressed(_isFullscreenSuppressed);
         if (_isFullscreenSuppressed)
         {
@@ -904,6 +918,14 @@ public partial class MainWindow : Window, IDisposable
         Dispose();
     }
 
+    private void WindowBlurService_OnAvailabilityChanged(object? sender, BackdropAvailabilityChangedEventArgs e)
+    {
+        if (!_disposed)
+        {
+            ApplyBackdropVisual(e.IsActive);
+        }
+    }
+
     public void Dispose()
     {
         if (_disposed)
@@ -919,6 +941,7 @@ public partial class MainWindow : Window, IDisposable
         _stateMachine.StateChanged -= StateMachine_OnStateChanged;
         _monitorPlacementService.Changed -= MonitorPlacementService_OnChanged;
         _windowController.MotionFrameChanged -= WindowController_OnMotionFrameChanged;
+        _windowBlurService.AvailabilityChanged -= WindowBlurService_OnAvailabilityChanged;
         CompactContent.PinClicked -= Pin_OnClicked;
         ExpandedContent.PinClicked -= Pin_OnClicked;
         ExpandedContent.CollapseRequested -= ExpandedContent_OnCollapseRequested;
@@ -927,8 +950,8 @@ public partial class MainWindow : Window, IDisposable
         _hotkeyService.RegistrationFailed -= HotkeyService_OnRegistrationFailed;
         _hotkeyService.Dispose();
         _autoHideService.Dispose();
-        _windowController.Dispose();
         _windowBlurService.Dispose();
+        _windowController.Dispose();
         _monitorPlacementService.Dispose();
         if (_fullscreenSuppressionService is not null)
         {
