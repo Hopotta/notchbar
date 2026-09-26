@@ -1,6 +1,5 @@
 using System.Collections.Concurrent;
 using System.Globalization;
-using Timer = System.Threading.Timer;
 
 namespace NotchBar.Core;
 
@@ -13,7 +12,7 @@ public sealed class StatusStore : IDisposable
     private readonly object _mutationGate = new();
     private readonly ConcurrentDictionary<string, StatusItem> _items = new(StringComparer.OrdinalIgnoreCase);
     private readonly TimeProvider _timeProvider;
-    private readonly Timer _expiryTimer;
+    private readonly ITimer _expiryTimer;
     private bool _disposed;
 
     public StatusStore(TimeProvider? timeProvider = null)
@@ -33,7 +32,11 @@ public sealed class StatusStore : IDisposable
             IsBuiltIn = true
         };
 
-        _expiryTimer = new Timer(_ => RemoveExpired(), null, TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(1));
+        _expiryTimer = _timeProvider.CreateTimer(
+            _ => RemoveExpired(),
+            null,
+            Timeout.InfiniteTimeSpan,
+            Timeout.InfiniteTimeSpan);
     }
 
     public event EventHandler<StatusStoreChangedEventArgs>? Changed;
@@ -54,8 +57,29 @@ public sealed class StatusStore : IDisposable
 
     public StatusItem? GetDisplayItem()
     {
-        var active = GetActiveItems();
-        return active.FirstOrDefault(item => item.IsNotification) ?? active.FirstOrDefault();
+        var now = _timeProvider.GetUtcNow();
+        StatusItem? bestNotification = null;
+        StatusItem? bestAny = null;
+
+        foreach (var item in _items.Values)
+        {
+            if (item.IsExpired(now))
+            {
+                continue;
+            }
+
+            if (IsPreferred(item, bestAny))
+            {
+                bestAny = item;
+            }
+
+            if (item.IsNotification && IsPreferred(item, bestNotification))
+            {
+                bestNotification = item;
+            }
+        }
+
+        return (bestNotification ?? bestAny) is { } selected ? selected with { } : null;
     }
 
     public TimeSpan? GetRemainingNotificationLifetime()
@@ -115,6 +139,7 @@ public sealed class StatusStore : IDisposable
             }
 
             _items[id] = item;
+            ScheduleNextExpiry();
         }
 
         Changed?.Invoke(this, new StatusStoreChangedEventArgs(item, item.WakeOnUpdate, false));
@@ -145,6 +170,7 @@ public sealed class StatusStore : IDisposable
             }
 
             _items[item.Id] = item;
+            ScheduleNextExpiry();
         }
 
         Changed?.Invoke(this, new StatusStoreChangedEventArgs(item, true, false));
@@ -163,6 +189,10 @@ public sealed class StatusStore : IDisposable
         lock (_mutationGate)
         {
             deleted = _items.TryRemove(id, out removed);
+            if (deleted)
+            {
+                ScheduleNextExpiry();
+            }
         }
 
         if (deleted && removed is not null)
@@ -191,6 +221,7 @@ public sealed class StatusStore : IDisposable
         lock (_mutationGate)
         {
             _items[ClockId] = item;
+            ScheduleNextExpiry();
         }
 
         Changed?.Invoke(this, new StatusStoreChangedEventArgs(item, false, false));
@@ -200,17 +231,51 @@ public sealed class StatusStore : IDisposable
         _items.Values.Count(item =>
             !item.IsBuiltIn && item.IsNotification == notifications && !item.IsExpired(now));
 
-    private void RemoveExpired()
+    private static bool IsPreferred(StatusItem candidate, StatusItem? current) =>
+        current is null ||
+        candidate.Priority > current.Priority ||
+        (candidate.Priority == current.Priority && candidate.UpdatedAt > current.UpdatedAt);
+
+    private void ScheduleNextExpiry()
     {
         if (_disposed)
         {
             return;
         }
 
+        DateTimeOffset? nearestExpiry = null;
+        foreach (var item in _items.Values)
+        {
+            if (item.IsBuiltIn || item.TtlSeconds <= 0)
+            {
+                continue;
+            }
+
+            var expiry = item.UpdatedAt.AddSeconds(item.TtlSeconds);
+            if (nearestExpiry is null || expiry < nearestExpiry.Value)
+            {
+                nearestExpiry = expiry;
+            }
+        }
+
+        var now = _timeProvider.GetUtcNow();
+        var dueTime = nearestExpiry is null
+            ? Timeout.InfiniteTimeSpan
+            : nearestExpiry.Value <= now ? TimeSpan.Zero : nearestExpiry.Value - now;
+        _expiryTimer.Change(dueTime, Timeout.InfiniteTimeSpan);
+    }
+
+    private void RemoveExpired()
+    {
         var now = _timeProvider.GetUtcNow();
         List<StatusItem>? removedItems = null;
         lock (_mutationGate)
         {
+            if (_disposed)
+            {
+                return;
+            }
+
             var collection = (ICollection<KeyValuePair<string, StatusItem>>)_items;
             foreach (var pair in _items)
             {
@@ -219,6 +284,8 @@ public sealed class StatusStore : IDisposable
                     (removedItems ??= []).Add(pair.Value);
                 }
             }
+
+            ScheduleNextExpiry();
         }
 
         if (removedItems is null)
@@ -226,7 +293,7 @@ public sealed class StatusStore : IDisposable
             return;
         }
 
-        foreach (var removedItem in removedItems)
+        foreach (var removedItem in removedItems.OrderBy(item => item.UpdatedAt.AddSeconds(item.TtlSeconds)))
         {
             Changed?.Invoke(this, new StatusStoreChangedEventArgs(removedItem, false, true));
         }
@@ -239,8 +306,16 @@ public sealed class StatusStore : IDisposable
 
     public void Dispose()
     {
-        _disposed = true;
-        _expiryTimer.Dispose();
+        lock (_mutationGate)
+        {
+            if (_disposed)
+            {
+                return;
+            }
+
+            _disposed = true;
+            _expiryTimer.Dispose();
+        }
     }
 }
 

@@ -41,7 +41,7 @@ public sealed class ApiService
             return;
         }
 
-        var builder = WebApplication.CreateBuilder(new WebApplicationOptions
+        var builder = WebApplication.CreateSlimBuilder(new WebApplicationOptions
         {
             ApplicationName = typeof(ApiService).Assembly.GetName().Name,
             ContentRootPath = AppContext.BaseDirectory,

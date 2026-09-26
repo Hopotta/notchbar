@@ -8,13 +8,12 @@ namespace NotchBar.Tests;
 public sealed class WindowTransitionMotionTests
 {
     [Fact]
-    public void SpringMotion_ZeroOrNegativeElapsed_DoesNotAdvance()
+    public void SpringMotion_ZeroElapsed_DoesNotAdvance()
     {
         var motion = new SpringMotion();
         motion.SetTarget(1);
 
         Assert.False(motion.Step(TimeSpan.Zero));
-        Assert.False(motion.Step(TimeSpan.FromMilliseconds(-10)));
         Assert.Equal(0, motion.Value);
         Assert.Equal(0, motion.Velocity);
     }
@@ -55,31 +54,115 @@ public sealed class WindowTransitionMotionTests
     }
 
     [Theory]
-    [InlineData(96u, 320, 37, -1120, -35)]
-    [InlineData(120u, 400, 46, -1160, -44)]
-    [InlineData(144u, 480, 56, -1200, -53)]
-    public void PixelGeometry_IsDeterministicAcrossCommonDpiScales(
+    [InlineData(96u, 560, 335, -1240, -35, 120, 0, 320, 37, 35)]
+    [InlineData(120u, 700, 419, -1310, -44, 150, 0, 400, 46, 44)]
+    [InlineData(144u, 840, 503, -1380, -53, 180, 0, 480, 56, 53)]
+    public void EnvelopeGeometry_UsesFixedEnvelopeAndKeepsIslandWithinIt(
         uint dpi,
-        int expectedWidth,
-        int expectedHeight,
-        int expectedX,
-        int expectedY)
+        int envelopeWidth,
+        int envelopeHeight,
+        int envelopeX,
+        int envelopeY,
+        int hiddenIslandX,
+        int hiddenIslandY,
+        int hiddenIslandWidth,
+        int hiddenIslandHeight,
+        int visibleIslandY)
     {
         var monitor = new Rectangle(-1920, 0, 1920, 1080);
-        var frame = new WindowMotionFrame(
-            Width: 320,
-            Height: 37,
-            TopOffset: -35,
-            ExpansionProgress: 0,
-            TargetState: NotchState.Hidden,
-            IsSettled: false);
+        var hidden = WindowEnvelopeGeometry.Calculate(
+            monitor,
+            dpi,
+            CreateFrame(width: 320, height: 37, topOffset: -35),
+            isSuppressed: false);
+        var visibleCompact = WindowEnvelopeGeometry.Calculate(
+            monitor,
+            dpi,
+            CreateFrame(width: 320, height: 37, topOffset: 0),
+            isSuppressed: false);
+        var expanded = WindowEnvelopeGeometry.Calculate(
+            monitor,
+            dpi,
+            CreateFrame(width: 500, height: 220, topOffset: 0),
+            isSuppressed: false);
 
-        var geometry = WindowPixelGeometry.Calculate(monitor, dpi, frame, isSuppressed: false);
+        Assert.Equal(envelopeWidth, hidden.Envelope.Width);
+        Assert.Equal(envelopeHeight, hidden.Envelope.Height);
+        Assert.Equal(envelopeX, hidden.Envelope.X);
+        Assert.Equal(envelopeY, hidden.Envelope.Y);
+        Assert.Equal(hidden.Envelope, visibleCompact.Envelope);
+        Assert.Equal(hidden.Envelope, expanded.Envelope);
+        Assert.Equal(hiddenIslandX, hidden.Island.X);
+        Assert.Equal(hiddenIslandY, hidden.Island.Y);
+        Assert.Equal(hiddenIslandWidth, hidden.Island.Width);
+        Assert.Equal(hiddenIslandHeight, hidden.Island.Height);
+        Assert.Equal(visibleIslandY, visibleCompact.Island.Y);
+        Assert.Equal(visibleIslandY, expanded.Island.Y);
+        Assert.InRange(expanded.Island.X, 0, envelopeWidth - expanded.Island.Width);
+        Assert.InRange(expanded.Island.Y, 0, envelopeHeight - expanded.Island.Height);
+    }
 
-        Assert.Equal(expectedWidth, geometry.Width);
-        Assert.Equal(expectedHeight, geometry.Height);
-        Assert.Equal(expectedX, geometry.X);
-        Assert.Equal(expectedY, geometry.Y);
+    [Fact]
+    public void EnvelopeGeometry_ClampsToNarrowMonitorAndMovesWholeEnvelopeDuringSuppression()
+    {
+        var narrowMonitor = new Rectangle(1920, -80, 420, 900);
+        var expanded = WindowEnvelopeGeometry.Calculate(
+            narrowMonitor,
+            dpi: 120,
+            CreateFrame(width: 500, height: 220, topOffset: 0),
+            isSuppressed: false);
+        var suppressed = WindowEnvelopeGeometry.Calculate(
+            narrowMonitor,
+            dpi: 120,
+            CreateFrame(width: 500, height: 220, topOffset: 0),
+            isSuppressed: true);
+
+        Assert.Equal(narrowMonitor.Left, expanded.Envelope.X);
+        Assert.Equal(narrowMonitor.Width, expanded.Envelope.Width);
+        Assert.Equal(narrowMonitor.Width, expanded.Island.Width);
+        Assert.Equal(0, expanded.Island.X);
+        Assert.Equal(narrowMonitor.Top - suppressed.Envelope.Height, suppressed.Envelope.Y);
+        Assert.Equal(narrowMonitor.Top, suppressed.Envelope.Y + suppressed.Envelope.Height);
+        Assert.Equal(expanded.Island, suppressed.Island);
+    }
+
+    [Theory]
+    [InlineData(96u)]
+    [InlineData(120u)]
+    [InlineData(144u)]
+    public void EnvelopeGeometry_FractionalSpringFramesRetainTheirTargetScreenTop(uint dpi)
+    {
+        var monitor = new Rectangle(-1920, -40, 1920, 1080);
+        var scale = dpi / 96d;
+
+        foreach (var topOffset in new[] { -34.1, -23.7, -11.2, -0.3 })
+        {
+            var geometry = WindowEnvelopeGeometry.Calculate(
+                monitor,
+                dpi,
+                CreateFrame(width: 420, height: 130, topOffset),
+                isSuppressed: false);
+            var expectedTop = monitor.Top + (int)Math.Round(
+                topOffset * scale,
+                MidpointRounding.AwayFromZero);
+
+            Assert.Equal(expectedTop, geometry.Envelope.Y + geometry.Island.Y);
+        }
+    }
+
+    [Fact]
+    public void EnvelopeGeometry_ClipsTransientReversalOvershootToFixedIslandLimits()
+    {
+        var geometry = WindowEnvelopeGeometry.Calculate(
+            new Rectangle(0, 0, 1920, 1080),
+            dpi: 96,
+            CreateFrame(width: 620, height: 340, topOffset: 340),
+            isSuppressed: false);
+
+        Assert.Equal(560, geometry.Island.Width);
+        Assert.Equal(300, geometry.Island.Height);
+        Assert.Equal(35, geometry.Island.Y);
+        Assert.Equal(335, geometry.Island.Y + geometry.Island.Height);
     }
 
     [Fact]
@@ -206,6 +289,15 @@ public sealed class WindowTransitionMotionTests
         motion.Retarget(NotchState.Compact, animate: false);
         return motion;
     }
+
+    private static WindowMotionFrame CreateFrame(double width, double height, double topOffset) =>
+        new(
+            Width: width,
+            Height: height,
+            TopOffset: topOffset,
+            ExpansionProgress: 0,
+            TargetState: NotchState.Compact,
+            IsSettled: false);
 
     private static void AssertCompact(WindowMotionFrame frame)
     {

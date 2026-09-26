@@ -36,6 +36,7 @@ public partial class MainWindow : Window, IDisposable
     private string? _displayedItemId;
     private bool _pendingItemTransition;
     private bool _contentMorphPrepared;
+    private bool _islandLayoutPending;
     private bool _displayedItemIsClock;
     private bool _isFullscreenSuppressed;
     private Task<bool> _backdropInitializationTask = Task.FromResult(false);
@@ -408,7 +409,13 @@ public partial class MainWindow : Window, IDisposable
         object? sender,
         WindowMotionFrameChangedEventArgs e)
     {
-        if (_disposed || _isFullscreenSuppressed)
+        if (_disposed)
+        {
+            return;
+        }
+
+        ApplyIslandGeometry(e.Geometry, e.Dpi);
+        if (_isFullscreenSuppressed)
         {
             return;
         }
@@ -433,13 +440,19 @@ public partial class MainWindow : Window, IDisposable
             ResumeClockOverlayMotion();
         }
 
-        // The controller first reports the spring's target, then commits the
-        // final HWND size. Keep the last overlay frame until the dispatcher has
-        // arranged that committed size and captured the real target anchors.
+        var keepClockOverlayForCompactEndpoint = e.IsTransitionActive &&
+            frame.TargetState == NotchState.Compact &&
+            _displayedItemIsClock &&
+            ClockTransitionOverlay.Visibility == Visibility.Visible &&
+            _clockOverlayHandoff.State == ClockOverlayHandoffState.Moving;
+
+        // Keep the last overlay frame until the dispatcher has arranged the
+        // endpoint island bounds and captured the real target anchors.
         if (!shouldHandoffClockOverlay)
         {
             if (frame.ExpansionProgress > 0.001 ||
-                frame.TargetState is NotchState.Expanded or NotchState.Pinned)
+                frame.TargetState is NotchState.Expanded or NotchState.Pinned ||
+                keepClockOverlayForCompactEndpoint)
             {
                 PrepareContentMorph();
                 ApplyContentMorphFrame(frame.ExpansionProgress);
@@ -453,14 +466,54 @@ public partial class MainWindow : Window, IDisposable
         if (shouldHandoffClockOverlay)
         {
             // Starting while the controller is finishing the settled render
-            // callback is safe: the queued layout operation runs after its final
-            // native geometry commit and before the next presented frame.
+            // callback is safe: the queued layout operation runs after the
+            // endpoint island bounds are applied and before presentation.
             BeginClockOverlayEndpointHandoff(settledState);
         }
         else if (!e.IsTransitionActive && frame.IsSettled)
         {
             SetContentStateImmediate(settledState);
             TryRunPendingItemTransition();
+        }
+    }
+
+    private void ApplyIslandGeometry(WindowEnvelopeGeometry geometry, uint dpi)
+    {
+        var scale = 96d / (dpi == 0 ? 96u : dpi);
+        var island = geometry.Island;
+        var left = island.X * scale;
+        var top = island.Y * scale;
+        var width = island.Width * scale;
+        var height = island.Height * scale;
+        var islandBoundsChanged = false;
+
+        if (!Canvas.GetLeft(IslandBorder).Equals(left))
+        {
+            Canvas.SetLeft(IslandBorder, left);
+            islandBoundsChanged = true;
+        }
+
+        if (!Canvas.GetTop(IslandBorder).Equals(top))
+        {
+            Canvas.SetTop(IslandBorder, top);
+            islandBoundsChanged = true;
+        }
+
+        if (!IslandBorder.Width.Equals(width))
+        {
+            IslandBorder.Width = width;
+            islandBoundsChanged = true;
+        }
+
+        if (!IslandBorder.Height.Equals(height))
+        {
+            IslandBorder.Height = height;
+            islandBoundsChanged = true;
+        }
+
+        if (islandBoundsChanged)
+        {
+            _islandLayoutPending = true;
         }
     }
 
@@ -478,18 +531,28 @@ public partial class MainWindow : Window, IDisposable
         CompactHost.Opacity = 1;
         ExpandedHost.Opacity = 1;
 
-        // Arrange the target view once before the first transition frame. The
-        // following frames read live arranged positions but never force layout.
-        ContentRoot.UpdateLayout();
+        // Arrange the target view once before the first transition frame. Later
+        // size changes synchronize only this island subtree before anchor reads.
+        IslandBorder.UpdateLayout();
+        _islandLayoutPending = false;
         _contentMorphPrepared = true;
     }
 
     private void ApplyContentMorphFrame(double expansionProgress)
     {
+        if (_islandLayoutPending)
+        {
+            // This window is a fixed transparent envelope. Synchronize only
+            // the visible island subtree before reading its live anchors so
+            // the morph uses the same viewport that will be rendered.
+            IslandBorder.UpdateLayout();
+            _islandLayoutPending = false;
+        }
+
         var choreography = TransitionChoreography.Evaluate(expansionProgress);
-        // Native window resizing can re-arrange both hosts between frames. Read
-        // their lightweight point anchors after that arrange so the target does
-        // not remain tied to whichever width started the transition.
+        // Island viewport resizing re-arranges both hosts as the spring moves.
+        // Read their lightweight anchors live so the target follows the current
+        // viewport width instead of the width from the transition's first frame.
         var compactAnchors = CompactContent.CaptureTransitionAnchors(ContentRoot);
         var expandedAnchors = ExpandedContent.CaptureTransitionAnchors(ContentRoot);
         var sharedElementOffsets = SharedElementOffsets.Between(compactAnchors, expandedAnchors);
@@ -756,12 +819,6 @@ public partial class MainWindow : Window, IDisposable
         {
             return;
         }
-
-        var exactProgress = endpoint == ClockOverlayEndpoint.Expanded ? 1d : 0d;
-        PrepareContentMorph();
-        ContentRoot.UpdateLayout();
-        ApplyContentMorphFrame(exactProgress);
-        ContentRoot.UpdateLayout();
 
         ArrangeClockEndpointUnderOverlay(endpoint);
 
@@ -1040,7 +1097,8 @@ public partial class MainWindow : Window, IDisposable
         }
 
         _contentMorphPrepared = false;
-        ContentRoot.UpdateLayout();
+        IslandBorder.UpdateLayout();
+        _islandLayoutPending = false;
     }
 
     private void ReleaseClockOverlayOwnership()
@@ -1107,6 +1165,7 @@ public partial class MainWindow : Window, IDisposable
         }
 
         var continueMoving = _windowController.IsTransitionActive;
+        _windowController.RefreshDpiGeometry();
         CancelClockOverlayHandoff(continueMoving);
         _contentMorphPrepared = false;
         if (continueMoving)

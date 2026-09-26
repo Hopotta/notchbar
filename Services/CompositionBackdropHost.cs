@@ -50,6 +50,7 @@ public sealed class CompositionBackdropHost : IDisposable
     private bool _disposed;
     private uint _dpi = 96;
     private float _dpiScale = 1f;
+    private WindowEnvelopeGeometry? _geometry;
 
     public CompositionBackdropHost(
         IntPtr hwnd,
@@ -136,26 +137,28 @@ public sealed class CompositionBackdropHost : IDisposable
     }
 
     /// <summary>
-    /// Keeps only DPI-dependent material and mask inset values in sync. The
-    /// HWND's changing width and height flow through RelativeSizeAdjustment
-    /// and the NineGrid brush on the compositor, without UI-thread clip writes.
+    /// Keeps the fixed-envelope target's masked island visual in sync. The
+    /// envelope HWND remains unchanged during animation; only this sprite's
+    /// local physical-pixel offset and size move with the island.
     /// </summary>
-    public void UpdateGeometry(WindowPixelGeometry _, uint dpi)
+    public void UpdateGeometry(WindowEnvelopeGeometry geometry, uint dpi)
     {
+        _geometry = geometry;
+
         var effectiveDpi = dpi == 0 ? 96u : dpi;
-        if (_dpi == effectiveDpi)
+        if (_dpi != effectiveDpi)
         {
-            return;
+            _dpi = effectiveDpi;
+            _dpiScale = effectiveDpi / 96f;
+            if (_nineGridBrush is not null)
+            {
+                _nineGridBrush.SetInsetScales(_dpiScale);
+            }
+
+            _effectBrush?.Properties.InsertScalar("Blur.BlurAmount", 20f * _dpiScale);
         }
 
-        _dpi = effectiveDpi;
-        _dpiScale = effectiveDpi / 96f;
-        if (_nineGridBrush is not null)
-        {
-            _nineGridBrush.SetInsetScales(_dpiScale);
-        }
-
-        _effectBrush?.Properties.InsertScalar("Blur.BlurAmount", 20f * _dpiScale);
+        ApplyIslandGeometry();
     }
 
     public bool RefreshTheme()
@@ -313,7 +316,7 @@ public sealed class CompositionBackdropHost : IDisposable
         _maskBrush.Mask = _nineGridBrush;
 
         _backdropVisual = _compositor.CreateSpriteVisual();
-        _backdropVisual.RelativeSizeAdjustment = Vector2.One;
+        _backdropVisual.RelativeSizeAdjustment = Vector2.Zero;
         _backdropVisual.Brush = _maskBrush;
 
         _root = _compositor.CreateContainerVisual();
@@ -325,7 +328,20 @@ public sealed class CompositionBackdropHost : IDisposable
 
         _target.Root = _root;
         IsPrepared = true;
+        ApplyIslandGeometry();
         return true;
+    }
+
+    private void ApplyIslandGeometry()
+    {
+        if (_backdropVisual is null || _geometry is not { } geometry)
+        {
+            return;
+        }
+
+        var island = geometry.Island;
+        _backdropVisual.Offset = new Vector3(island.X, island.Y, 0f);
+        _backdropVisual.Size = new Vector2(island.Width, island.Height);
     }
 
     private Windows.UI.Color ResolveTint()

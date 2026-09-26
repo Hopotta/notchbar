@@ -60,6 +60,9 @@ public partial class ExpandedView : UserControl
         _currentItem = item;
         TitleText.Text = item.Title;
         var isClock = string.Equals(item.Id, StatusStore.ClockId, StringComparison.OrdinalIgnoreCase);
+        SimpleSecondaryText.SetResourceReference(
+            TextBlock.ForegroundProperty,
+            isClock ? "ClockDateText" : "PrimaryText");
         if (ApplyClockTextFormatting(isClock))
         {
             _titleBaselineMetrics = null;

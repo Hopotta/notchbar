@@ -33,6 +33,7 @@
         <SolidColorBrush x:Key="PrimaryText" Color="#172635" />
         <SolidColorBrush x:Key="SecondaryText" Color="#4B6072" />
         <SolidColorBrush x:Key="MutedText" Color="#718292" />
+        <SolidColorBrush x:Key="ClockDateText" Color="#38434F" />
         <SolidColorBrush x:Key="Accent" Color="#1D8EA3" />
         <SolidColorBrush x:Key="AccentSoft" Color="#301D8EA3" />
         <SolidColorBrush x:Key="BuiltInAccent" Color="#6B7C8D" />

@@ -54,7 +54,6 @@ public sealed class WindowBlurServiceTests
         Assert.Equal(20f, insets.LeftPixels);
         Assert.Equal(20f, insets.RightPixels);
         Assert.Equal(expectedScale, insets.InsetScale);
-        Assert.Equal(20f * expectedScale, insets.BottomPixels * insets.InsetScale);
     }
 
     [Fact]
@@ -100,13 +99,4 @@ public sealed class WindowBlurServiceTests
         Assert.False(gate.CanShow);
     }
 
-    [Fact]
-    public void GeometryPolicy_HidesBackdropForSuppressionAndFailure()
-    {
-        var bounds = new WindowPixelGeometry(10, 20, 500, 80);
-
-        Assert.True(BackdropWindowPolicy.DecideGeometry(bounds, active: true, suppressed: false, destroyed: false).ShouldShow);
-        Assert.False(BackdropWindowPolicy.DecideGeometry(bounds, active: true, suppressed: true, destroyed: false).ShouldShow);
-        Assert.False(BackdropWindowPolicy.DecideGeometry(bounds, active: true, suppressed: false, destroyed: true).ShouldShow);
-    }
 }

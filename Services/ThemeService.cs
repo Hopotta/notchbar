@@ -1,6 +1,7 @@
 using System.Windows;
 using System.Windows.Media;
 using System.Windows.Threading;
+using Microsoft.Win32;
 using Brush = System.Windows.Media.Brush;
 using Color = System.Windows.Media.Color;
 using Application = System.Windows.Application;
@@ -10,15 +11,18 @@ namespace NotchBar.Services;
 
 public sealed class ThemeService : IDisposable
 {
+    private readonly Dispatcher _dispatcher;
     private readonly DispatcherTimer _timer;
     private bool _isDark;
     private bool _started;
+    private volatile bool _disposed;
 
     public ThemeService()
     {
-        _timer = new DispatcherTimer(DispatcherPriority.Background)
+        _dispatcher = Application.Current?.Dispatcher ?? Dispatcher.CurrentDispatcher;
+        _timer = new DispatcherTimer(DispatcherPriority.Background, _dispatcher)
         {
-            Interval = TimeSpan.FromSeconds(30)
+            Interval = TimeSpan.FromHours(12)
         };
         _timer.Tick += Timer_OnTick;
     }
@@ -32,25 +36,121 @@ public sealed class ThemeService : IDisposable
         return localTime.Hour >= 18 || localTime.Hour < 6;
     }
 
+    public static DateTime NextThemeBoundary(DateTime localTime)
+    {
+        var nextBoundaryHour = localTime.Hour < 6
+            ? 6
+            : localTime.Hour < 18
+                ? 18
+                : 30;
+        return localTime.Date.AddHours(nextBoundaryHour);
+    }
+
+    public static TimeSpan GetDelayUntilNextThemeBoundary(
+        DateTime localTime,
+        DateTime utcNow,
+        TimeZoneInfo localTimeZone)
+    {
+        ArgumentNullException.ThrowIfNull(localTimeZone);
+        var boundary = DateTime.SpecifyKind(NextThemeBoundary(localTime), DateTimeKind.Unspecified);
+        var boundaryUtc = TimeZoneInfo.ConvertTimeToUtc(boundary, localTimeZone);
+        var utcNowValue = utcNow.Kind switch
+        {
+            DateTimeKind.Utc => utcNow,
+            DateTimeKind.Local => utcNow.ToUniversalTime(),
+            _ => DateTime.SpecifyKind(utcNow, DateTimeKind.Utc)
+        };
+        return boundaryUtc - utcNowValue;
+    }
+
     public void Start()
     {
-        if (_started)
+        if (_started || _disposed)
         {
             return;
         }
 
         _started = true;
+        SystemEvents.TimeChanged += SystemEvents_TimeChanged;
+        SystemEvents.UserPreferenceChanged += SystemEvents_UserPreferenceChanged;
+        SystemEvents.PowerModeChanged += SystemEvents_PowerModeChanged;
         Apply(IsDarkHours(DateTime.Now));
-        _timer.Start();
+        ScheduleNextBoundary();
     }
 
     private void Timer_OnTick(object? sender, EventArgs e)
     {
+        _timer.Stop();
+        RefreshThemeAndSchedule();
+    }
+
+    private void SystemEvents_TimeChanged(object? sender, EventArgs e) => QueueClockRefresh();
+
+    private void SystemEvents_UserPreferenceChanged(object? sender, UserPreferenceChangedEventArgs e)
+    {
+        if (e.Category == UserPreferenceCategory.General)
+        {
+            TimeZoneInfo.ClearCachedData();
+            QueueClockRefresh();
+        }
+    }
+
+    private void SystemEvents_PowerModeChanged(object? sender, PowerModeChangedEventArgs e)
+    {
+        if (e.Mode == PowerModes.Resume)
+        {
+            QueueClockRefresh();
+        }
+    }
+
+    private void QueueClockRefresh()
+    {
+        if (_disposed || _dispatcher.HasShutdownStarted || _dispatcher.HasShutdownFinished)
+        {
+            return;
+        }
+
+        try
+        {
+            _dispatcher.BeginInvoke(
+                DispatcherPriority.Background,
+                (Action)RefreshThemeAndSchedule);
+        }
+        catch (InvalidOperationException)
+        {
+            // The dispatcher can begin shutting down after the checks above.
+        }
+    }
+
+    private void RefreshThemeAndSchedule()
+    {
+        if (!_started || _disposed)
+        {
+            return;
+        }
+
         var shouldBeDark = IsDarkHours(DateTime.Now);
         if (shouldBeDark != _isDark)
         {
             Apply(shouldBeDark);
         }
+
+        ScheduleNextBoundary();
+    }
+
+    private void ScheduleNextBoundary()
+    {
+        if (!_started || _disposed)
+        {
+            return;
+        }
+
+        _timer.Stop();
+        var interval = GetDelayUntilNextThemeBoundary(DateTime.Now, DateTime.UtcNow, TimeZoneInfo.Local);
+        _timer.Interval = interval > TimeSpan.Zero
+            ? interval
+            : TimeSpan.FromMilliseconds(1);
+        _timer.Start();
     }
 
     private void Apply(bool dark)
@@ -101,6 +201,7 @@ public sealed class ThemeService : IDisposable
                 ["PrimaryText"] = Solid(0xFF, 0xF7, 0xFA, 0xFC),
                 ["SecondaryText"] = Solid(0xFF, 0xD7, 0xDE, 0xE7),
                 ["MutedText"] = Solid(0xFF, 0x9D, 0xA8, 0xB7),
+                ["ClockDateText"] = Solid(0xFF, 0xD7, 0xDE, 0xE7),
                 ["Accent"] = Solid(0xFF, 0x5D, 0xD6, 0xE4),
                 ["AccentSoft"] = Solid(0x42, 0x5D, 0xD6, 0xE4),
                 ["BuiltInAccent"] = Solid(0xFF, 0xA2, 0xAE, 0xBC),
@@ -138,6 +239,7 @@ public sealed class ThemeService : IDisposable
                 ["PrimaryText"] = Solid(0xFF, 0x17, 0x26, 0x35),
                 ["SecondaryText"] = Solid(0xFF, 0x4B, 0x60, 0x72),
                 ["MutedText"] = Solid(0xFF, 0x71, 0x82, 0x92),
+                ["ClockDateText"] = Solid(0xFF, 0x38, 0x43, 0x4F),
                 ["Accent"] = Solid(0xFF, 0x1D, 0x8E, 0xA3),
                 ["AccentSoft"] = Solid(0x30, 0x1D, 0x8E, 0xA3),
                 ["BuiltInAccent"] = Solid(0xFF, 0x6B, 0x7C, 0x8D),
@@ -175,9 +277,21 @@ public sealed class ThemeService : IDisposable
 
     public void Dispose()
     {
+        if (_disposed)
+        {
+            return;
+        }
+
+        _disposed = true;
         ThemeChanged = null;
         _timer.Tick -= Timer_OnTick;
         _timer.Stop();
+        if (_started)
+        {
+            SystemEvents.TimeChanged -= SystemEvents_TimeChanged;
+            SystemEvents.UserPreferenceChanged -= SystemEvents_UserPreferenceChanged;
+            SystemEvents.PowerModeChanged -= SystemEvents_PowerModeChanged;
+        }
         GC.SuppressFinalize(this);
     }
 }

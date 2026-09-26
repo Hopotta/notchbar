@@ -2,8 +2,8 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:ui="clr-namespace:NotchBar.UI"
-        Width="424"
-        Height="37"
+        Width="560"
+        Height="335"
         Background="Transparent"
         AllowsTransparency="True"
         ResizeMode="NoResize"
@@ -19,15 +19,20 @@
         MouseLeave="Window_OnMouseLeave"
         SourceInitialized="Window_OnSourceInitialized"
         Closed="Window_OnClosed">
-    <Border x:Name="IslandBorder"
-            Background="{DynamicResource IslandFallbackBackground}"
-            BorderBrush="Transparent"
-            BorderThickness="0"
-            CornerRadius="0,0,20,20"
-            ClipToBounds="True"
-            SnapsToDevicePixels="False"
-            UseLayoutRounding="False">
-        <Grid x:Name="ContentRoot" MouseLeftButtonUp="ContentRoot_OnMouseLeftButtonUp">
+    <Canvas x:Name="EnvelopeRoot" ClipToBounds="True">
+        <Border x:Name="IslandBorder"
+                Canvas.Left="68"
+                Canvas.Top="0"
+                Width="424"
+                Height="37"
+                Background="{DynamicResource IslandFallbackBackground}"
+                BorderBrush="Transparent"
+                BorderThickness="0"
+                CornerRadius="0,0,20,20"
+                ClipToBounds="True"
+                SnapsToDevicePixels="False"
+                UseLayoutRounding="False">
+            <Grid x:Name="ContentRoot" MouseLeftButtonUp="ContentRoot_OnMouseLeftButtonUp">
             <Border Height="1"
                     VerticalAlignment="Top"
                     Background="{DynamicResource GlassSheen}"
@@ -66,10 +71,11 @@
                            FontSize="13"
                            FontWeight="SemiBold" />
                 <TextBlock x:Name="ClockDateOverlay"
-                           Foreground="{DynamicResource MutedText}"
+                           Foreground="{DynamicResource ClockDateText}"
                            FontSize="11"
                            FontWeight="SemiBold" />
             </Canvas>
-        </Grid>
-    </Border>
+            </Grid>
+        </Border>
+    </Canvas>
 </Window>

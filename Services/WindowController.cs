@@ -13,7 +13,6 @@ public sealed class WindowController : IDisposable
     public const double CompactHeight = 37;
     public const double DefaultExpandedHeight = 230;
     public const double HiddenTriggerHeight = 2;
-
     private const double MinCompactWidth = 286;
     private const double MaxCompactWidth = 520;
     private const double MinExpandedWidth = 360;
@@ -21,11 +20,16 @@ public sealed class WindowController : IDisposable
     private const double MinExpandedHeight = 118;
     private const double MaxExpandedHeight = 300;
 
+    public const double EnvelopeWidth = MaxExpandedWidth;
+    public const double EnvelopeHeight = MaxExpandedHeight + CompactHeight - HiddenTriggerHeight;
+
     private const uint SwpNoSize = 0x0001;
     private const uint SwpNoZOrder = 0x0004;
     private const uint SwpNoActivate = 0x0010;
     private const uint SwpShowWindow = 0x0040;
     private const int SwHide = 0;
+    private const int WmNcHitTest = 0x0084;
+    private const int HtTransparent = -1;
     private static readonly IntPtr HwndTopmost = new(-1);
 
     private readonly Window _window;
@@ -38,30 +42,46 @@ public sealed class WindowController : IDisposable
     private bool _needsDpiHandshake = true;
     private bool _isSuppressed;
     private IntPtr _companionHandle;
-    private Action<WindowPixelGeometry, uint>? _companionGeometryChanged;
+    private Action<WindowEnvelopeGeometry, uint>? _companionGeometryChanged;
     private Action? _companionCommitFailed;
     private bool _companionActive;
+    private WindowPixelGeometry? _lastCommittedGeometry;
+    private bool _lastCommitIncludedCompanion;
+    private IntPtr _lastCommittedCompanionHandle;
+    private WindowEnvelopeGeometry _currentGeometry;
+    private uint _currentDpi = 96;
+    private HwndSource? _source;
     private bool _disposed;
 
     public WindowController(Window window, MonitorTarget monitor)
     {
         _window = window;
         _monitor = monitor;
-        _window.Width = DefaultWindowWidth;
-        _window.Height = CompactHeight;
+        _window.Width = EnvelopeWidth;
+        _window.Height = EnvelopeHeight;
         _window.SizeChanged += Window_OnSizeChanged;
-        ApplyFallbackPosition(_motion.Current);
+        _currentGeometry = WindowEnvelopeGeometry.Calculate(
+            _monitor.Bounds,
+            _currentDpi,
+            _motion.Current,
+            isSuppressed: false);
+        ApplyEnvelopeWpfSize(_currentGeometry, _currentDpi);
+        ApplyFallbackPosition();
     }
 
     public event EventHandler<WindowMotionFrameChangedEventArgs>? MotionFrameChanged;
 
     public WindowMotionFrame CurrentFrame => _motion.Current;
 
+    public WindowEnvelopeGeometry CurrentGeometry => _currentGeometry;
+
+    public uint CurrentDpi => _currentDpi;
+
     public bool IsTransitionActive => _transitionActive;
 
     public bool RegisterCompanion(
         IntPtr handle,
-        Action<WindowPixelGeometry, uint> geometryChanged,
+        Action<WindowEnvelopeGeometry, uint> geometryChanged,
         Action commitFailed)
     {
         if (_disposed || handle == IntPtr.Zero)
@@ -73,12 +93,14 @@ public sealed class WindowController : IDisposable
         _companionGeometryChanged = geometryChanged;
         _companionCommitFailed = commitFailed;
         _companionActive = true;
+        InvalidateCommittedGeometry();
         CommitFrame(_motion.Current);
         return _companionHandle != IntPtr.Zero && _companionActive;
     }
 
     public void UnregisterCompanion()
     {
+        InvalidateCommittedGeometry();
         if (_companionHandle != IntPtr.Zero)
         {
             _ = ShowWindow(_companionHandle, SwHide);
@@ -92,7 +114,13 @@ public sealed class WindowController : IDisposable
 
     public void SetCompanionActive(bool active)
     {
-        _companionActive = active && _companionHandle != IntPtr.Zero;
+        var companionActive = active && _companionHandle != IntPtr.Zero;
+        if (_companionActive != companionActive)
+        {
+            InvalidateCommittedGeometry();
+        }
+
+        _companionActive = companionActive;
         CommitFrame(_motion.Current);
     }
 
@@ -104,7 +132,10 @@ public sealed class WindowController : IDisposable
         }
 
         _handle = new WindowInteropHelper(_window).EnsureHandle();
+        _source = HwndSource.FromHwnd(_handle);
+        _source?.AddHook(WindowMessageHook);
         _needsDpiHandshake = true;
+        InvalidateCommittedGeometry();
         CommitFrame(_motion.Current);
         NotifyFrame();
     }
@@ -113,6 +144,7 @@ public sealed class WindowController : IDisposable
     {
         _monitor = monitor;
         _needsDpiHandshake = true;
+        InvalidateCommittedGeometry();
         CommitFrame(_motion.Current);
     }
 
@@ -142,7 +174,24 @@ public sealed class WindowController : IDisposable
 
     public void SetSuppressed(bool suppressed)
     {
+        if (_isSuppressed != suppressed)
+        {
+            InvalidateCommittedGeometry();
+        }
+
         _isSuppressed = suppressed;
+    }
+
+    public void RefreshDpiGeometry()
+    {
+        if (_disposed || _handle == IntPtr.Zero)
+        {
+            return;
+        }
+
+        InvalidateCommittedGeometry();
+        CommitFrame(_motion.Current);
+        NotifyFrame();
     }
 
     public void Apply(NotchState state)
@@ -232,19 +281,6 @@ public sealed class WindowController : IDisposable
 
     private void CommitSettledFrame(WindowMotionFrame frame)
     {
-        _committingGeometry = true;
-        try
-        {
-            _window.BeginAnimation(FrameworkElement.WidthProperty, null);
-            _window.BeginAnimation(FrameworkElement.HeightProperty, null);
-            _window.Width = frame.Width;
-            _window.Height = frame.Height;
-        }
-        finally
-        {
-            _committingGeometry = false;
-        }
-
         CommitFrame(frame);
     }
 
@@ -252,19 +288,33 @@ public sealed class WindowController : IDisposable
     {
         if (_handle == IntPtr.Zero)
         {
-            if (frame.IsSettled)
+            _currentDpi = 96;
+            _currentGeometry = WindowEnvelopeGeometry.Calculate(
+                _monitor.Bounds,
+                _currentDpi,
+                frame,
+                _isSuppressed);
+            _committingGeometry = true;
+            try
             {
-                _window.Width = frame.Width;
-                _window.Height = frame.Height;
+                ApplyEnvelopeWpfSize(_currentGeometry, _currentDpi);
+            }
+            finally
+            {
+                _committingGeometry = false;
             }
 
-            ApplyFallbackPosition(frame);
+            ApplyFallbackPosition();
             return;
         }
 
         var bounds = _monitor.Bounds;
         if (_needsDpiHandshake)
         {
+            // The handshake deliberately moves the HWND to the target monitor
+            // before its DPI is queried, so a previously committed rectangle
+            // cannot be considered current after this operation.
+            InvalidateCommittedGeometry();
             _ = SetWindowPos(
                 _handle,
                 IntPtr.Zero,
@@ -282,21 +332,22 @@ public sealed class WindowController : IDisposable
             dpi = 96;
         }
 
-        var geometry = WindowPixelGeometry.Calculate(bounds, dpi, frame, _isSuppressed);
+        var geometry = WindowEnvelopeGeometry.Calculate(bounds, dpi, frame, _isSuppressed);
+        _currentDpi = dpi;
+        _currentGeometry = geometry;
 
         _committingGeometry = true;
         try
         {
+            ApplyEnvelopeWpfSize(geometry, dpi);
             var companionShouldShow = _companionActive && _companionHandle != IntPtr.Zero && !_isSuppressed;
             if (companionShouldShow)
             {
-                // Only DPI-dependent compositor parameters change here. The
-                // retained mask follows the paired HWND resize automatically.
                 var committed = false;
                 try
                 {
                     _companionGeometryChanged?.Invoke(geometry, dpi);
-                    committed = CommitPairedGeometry(geometry);
+                    committed = CommitPairedGeometry(geometry.Envelope);
                 }
                 catch (Exception exception)
                 {
@@ -306,14 +357,7 @@ public sealed class WindowController : IDisposable
                 if (!committed)
                 {
                     FailCompanionCommit();
-                    _ = SetWindowPos(
-                        _handle,
-                        IntPtr.Zero,
-                        geometry.X,
-                        geometry.Y,
-                        geometry.Width,
-                        geometry.Height,
-                        SwpNoZOrder | SwpNoActivate);
+                    _ = CommitMainGeometry(geometry.Envelope);
                 }
             }
             else
@@ -323,14 +367,7 @@ public sealed class WindowController : IDisposable
                     _ = ShowWindow(_companionHandle, SwHide);
                 }
 
-                _ = SetWindowPos(
-                    _handle,
-                    IntPtr.Zero,
-                    geometry.X,
-                    geometry.Y,
-                    geometry.Width,
-                    geometry.Height,
-                    SwpNoZOrder | SwpNoActivate);
+                _ = CommitMainGeometry(geometry.Envelope);
             }
         }
         finally
@@ -343,12 +380,24 @@ public sealed class WindowController : IDisposable
     {
         MotionFrameChanged?.Invoke(
             this,
-            new WindowMotionFrameChangedEventArgs(_motion.Current, _transitionActive));
+            new WindowMotionFrameChangedEventArgs(
+                _motion.Current,
+                _transitionActive,
+                _currentGeometry,
+                _currentDpi));
     }
 
     private void Window_OnSizeChanged(object sender, SizeChangedEventArgs e)
     {
-        if (_disposed || _handle == IntPtr.Zero || _committingGeometry || _transitionActive)
+        if (_disposed || _handle == IntPtr.Zero || _committingGeometry)
+        {
+            return;
+        }
+
+        // A size change outside our native commit path means the HWND may no
+        // longer match the cached pixel rectangle.
+        InvalidateCommittedGeometry();
+        if (_transitionActive)
         {
             return;
         }
@@ -356,10 +405,62 @@ public sealed class WindowController : IDisposable
         CommitFrame(_motion.Current);
     }
 
-    private void ApplyFallbackPosition(WindowMotionFrame frame)
+    private void ApplyFallbackPosition()
     {
-        _window.Left = Math.Max(0, (SystemParameters.PrimaryScreenWidth - frame.Width) / 2);
-        _window.Top = _isSuppressed ? -frame.Height : frame.TopOffset;
+        _window.Left = Math.Max(0, (SystemParameters.PrimaryScreenWidth - EnvelopeWidth) / 2);
+        _window.Top = _isSuppressed ? -EnvelopeHeight : -(CompactHeight - HiddenTriggerHeight);
+    }
+
+    private void ApplyEnvelopeWpfSize(WindowEnvelopeGeometry geometry, uint dpi)
+    {
+        var scale = (dpi == 0 ? 96 : dpi) / 96d;
+        var widthDip = geometry.Envelope.Width / scale;
+        var heightDip = geometry.Envelope.Height / scale;
+        if (Math.Abs(_window.Width - widthDip) > 0.001)
+        {
+            _window.Width = widthDip;
+        }
+
+        if (Math.Abs(_window.Height - heightDip) > 0.001)
+        {
+            _window.Height = heightDip;
+        }
+    }
+
+    private IntPtr WindowMessageHook(
+        IntPtr hwnd,
+        int message,
+        IntPtr wParam,
+        IntPtr lParam,
+        ref bool handled)
+    {
+        if (message != WmNcHitTest || _isSuppressed)
+        {
+            return IntPtr.Zero;
+        }
+
+        // WM_NCHITTEST packs signed screen coordinates in lParam. Do not use
+        // GetCursorPos here: WindowFromPoint and accessibility hit-tests can
+        // query a point that is not the current physical cursor position.
+        var packedPoint = unchecked((int)lParam.ToInt64());
+        var screenPoint = new NativePoint
+        {
+            X = unchecked((short)(packedPoint & 0xFFFF)),
+            Y = unchecked((short)((packedPoint >> 16) & 0xFFFF))
+        };
+
+        var envelope = _currentGeometry.Envelope;
+        var island = _currentGeometry.Island;
+        var left = envelope.X + island.X;
+        var top = envelope.Y + island.Y;
+        if (screenPoint.X >= left && screenPoint.X < left + island.Width &&
+            screenPoint.Y >= top && screenPoint.Y < top + island.Height)
+        {
+            return IntPtr.Zero;
+        }
+
+        handled = true;
+        return new IntPtr(HtTransparent);
     }
 
     public void Dispose()
@@ -371,17 +472,23 @@ public sealed class WindowController : IDisposable
 
         _disposed = true;
         StopRendering();
-        _window.BeginAnimation(FrameworkElement.WidthProperty, null);
-        _window.BeginAnimation(FrameworkElement.HeightProperty, null);
+        _source?.RemoveHook(WindowMessageHook);
+        _source = null;
         _window.SizeChanged -= Window_OnSizeChanged;
         UnregisterCompanion();
     }
 
     private bool CommitPairedGeometry(WindowPixelGeometry geometry)
     {
+        if (HasCommittedGeometry(geometry, includesCompanion: true))
+        {
+            return true;
+        }
+
         var deferred = BeginDeferWindowPos(2);
         if (deferred == IntPtr.Zero)
         {
+            InvalidateCommittedGeometry();
             return false;
         }
 
@@ -396,6 +503,7 @@ public sealed class WindowController : IDisposable
             SwpNoActivate | SwpShowWindow);
         if (next == IntPtr.Zero)
         {
+            InvalidateCommittedGeometry();
             _ = ShowWindow(_companionHandle, SwHide); // The failed DeferWindowPos invalidates its HDWP.
             return false;
         }
@@ -411,6 +519,7 @@ public sealed class WindowController : IDisposable
             SwpNoActivate | SwpShowWindow);
         if (next == IntPtr.Zero)
         {
+            InvalidateCommittedGeometry();
             _ = ShowWindow(_companionHandle, SwHide); // The failed DeferWindowPos invalidates its HDWP.
             return false;
         }
@@ -418,9 +527,59 @@ public sealed class WindowController : IDisposable
         var committed = EndDeferWindowPos(next);
         if (!committed)
         {
+            InvalidateCommittedGeometry();
             _ = ShowWindow(_companionHandle, SwHide);
+            return false;
         }
+
+        RecordCommittedGeometry(geometry, includesCompanion: true);
+        return true;
+    }
+
+    private bool CommitMainGeometry(WindowPixelGeometry geometry)
+    {
+        if (HasCommittedGeometry(geometry, includesCompanion: false))
+        {
+            return true;
+        }
+
+        var committed = SetWindowPos(
+            _handle,
+            IntPtr.Zero,
+            geometry.X,
+            geometry.Y,
+            geometry.Width,
+            geometry.Height,
+            SwpNoZOrder | SwpNoActivate);
+        if (committed)
+        {
+            RecordCommittedGeometry(geometry, includesCompanion: false);
+        }
+        else
+        {
+            InvalidateCommittedGeometry();
+        }
+
         return committed;
+    }
+
+    private bool HasCommittedGeometry(WindowPixelGeometry geometry, bool includesCompanion) =>
+        _lastCommittedGeometry == geometry &&
+        _lastCommitIncludedCompanion == includesCompanion &&
+        _lastCommittedCompanionHandle == (includesCompanion ? _companionHandle : IntPtr.Zero);
+
+    private void RecordCommittedGeometry(WindowPixelGeometry geometry, bool includesCompanion)
+    {
+        _lastCommittedGeometry = geometry;
+        _lastCommitIncludedCompanion = includesCompanion;
+        _lastCommittedCompanionHandle = includesCompanion ? _companionHandle : IntPtr.Zero;
+    }
+
+    private void InvalidateCommittedGeometry()
+    {
+        _lastCommittedGeometry = null;
+        _lastCommitIncludedCompanion = false;
+        _lastCommittedCompanionHandle = IntPtr.Zero;
     }
 
     private void FailCompanionCommit()
@@ -465,30 +624,71 @@ public sealed class WindowController : IDisposable
 
     [DllImport("user32.dll")]
     private static extern uint GetDpiForWindow(IntPtr hWnd);
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct NativePoint
+    {
+        public int X;
+        public int Y;
+    }
 }
 
+/// <summary>Physical-pixel window rectangle with a screen-absolute origin.</summary>
+public readonly record struct WindowPixelGeometry(int X, int Y, int Width, int Height);
+
 /// <summary>
-/// Pixel geometry used for the single native window commit performed each
-/// rendering frame. Keeping DIP-to-pixel conversion pure makes mixed-DPI
-/// placement deterministic and independently testable.
+/// Island bounds in physical pixels, relative to the fixed envelope's client
+/// origin. These are shared with the composition companion.
 /// </summary>
-public readonly record struct WindowPixelGeometry(int X, int Y, int Width, int Height)
+public readonly record struct WindowIslandPixelRect(int X, int Y, int Width, int Height);
+
+/// <summary>
+/// Fixed HWND envelope bounds plus the changing island bounds inside it. The
+/// envelope origin is screen-absolute; island coordinates are envelope-local.
+/// </summary>
+public readonly record struct WindowEnvelopeGeometry(
+    WindowPixelGeometry Envelope,
+    WindowIslandPixelRect Island)
 {
-    public static WindowPixelGeometry Calculate(
+    private const double HiddenTopInset = WindowController.CompactHeight - WindowController.HiddenTriggerHeight;
+    private const double MaxIslandWidth = WindowController.EnvelopeWidth;
+    private const double MaxIslandHeight = 300;
+
+    public static WindowEnvelopeGeometry Calculate(
         Rectangle monitorBounds,
         uint dpi,
         WindowMotionFrame frame,
         bool isSuppressed)
     {
         var scale = (dpi == 0 ? 96 : dpi) / 96d;
-        var width = Math.Max(1, ScaleToPixels(frame.Width, scale));
-        var height = Math.Max(1, ScaleToPixels(frame.Height, scale));
-        var x = monitorBounds.Left + Math.Max(0, (monitorBounds.Width - width) / 2);
-        var y = isSuppressed
-            ? monitorBounds.Top - height
-            : monitorBounds.Top + ScaleToPixels(frame.TopOffset, scale);
+        var envelopeWidth = Math.Max(
+            1,
+            Math.Min(ScaleToPixels(WindowController.EnvelopeWidth, scale), monitorBounds.Width));
+        var envelopeHeight = ScaleToPixels(WindowController.EnvelopeHeight, scale);
+        var islandWidth = Math.Clamp(
+            ScaleToPixels(Math.Clamp(frame.Width, 1, MaxIslandWidth), scale),
+            1,
+            envelopeWidth);
+        var islandHeight = Math.Clamp(
+            ScaleToPixels(Math.Clamp(frame.Height, 1, MaxIslandHeight), scale),
+            1,
+            envelopeHeight);
+        var envelopeX = monitorBounds.Left + Math.Max(0, (monitorBounds.Width - envelopeWidth) / 2);
+        var islandScreenX = monitorBounds.Left + Math.Max(0, (monitorBounds.Width - islandWidth) / 2);
+        var islandX = Math.Clamp(islandScreenX - envelopeX, 0, envelopeWidth - islandWidth);
+        var hiddenTopInsetPixels = ScaleToPixels(HiddenTopInset, scale);
+        var islandTopOffsetPixels = ScaleToPixels(frame.TopOffset, scale);
+        var envelopeY = isSuppressed
+            ? monitorBounds.Top - envelopeHeight
+            : monitorBounds.Top - hiddenTopInsetPixels;
+        var islandY = Math.Clamp(
+            islandTopOffsetPixels + hiddenTopInsetPixels,
+            0,
+            Math.Max(0, envelopeHeight - islandHeight));
 
-        return new WindowPixelGeometry(x, y, width, height);
+        return new WindowEnvelopeGeometry(
+            new WindowPixelGeometry(envelopeX, envelopeY, envelopeWidth, envelopeHeight),
+            new WindowIslandPixelRect(islandX, islandY, islandWidth, islandHeight));
     }
 
     private static int ScaleToPixels(double value, double scale) =>
@@ -497,9 +697,15 @@ public readonly record struct WindowPixelGeometry(int X, int Y, int Width, int H
 
 public sealed class WindowMotionFrameChangedEventArgs(
     WindowMotionFrame frame,
-    bool isTransitionActive) : EventArgs
+    bool isTransitionActive,
+    WindowEnvelopeGeometry geometry,
+    uint dpi) : EventArgs
 {
     public WindowMotionFrame Frame { get; } = frame;
 
     public bool IsTransitionActive { get; } = isTransitionActive;
+
+    public WindowEnvelopeGeometry Geometry { get; } = geometry;
+
+    public uint Dpi { get; } = dpi;
 }

@@ -1,6 +1,4 @@
-using System.Runtime.InteropServices;
 using System.Windows;
-using System.Windows.Interop;
 using System.Windows.Media;
 
 namespace NotchBar.Services;
@@ -64,24 +62,14 @@ public sealed class WindowBlurService : IDisposable
         try
         {
             cancellationToken.ThrowIfCancellationRequested();
-            var mainHandle = new WindowInteropHelper(_window).Handle;
-            if (mainHandle == IntPtr.Zero || !GetWindowRect(mainHandle, out var rect))
-            {
-                FailAndDestroy();
-                return false;
-            }
-
             _hostWindow = new BackdropHostWindow();
             _compositionHost = new CompositionBackdropHost(
                 _hostWindow.Handle,
                 mode,
                 ResolveTint);
-            var geometry = new WindowPixelGeometry(
-                rect.Left,
-                rect.Top,
-                Math.Max(1, rect.Right - rect.Left),
-                Math.Max(1, rect.Bottom - rect.Top));
-            _compositionHost.UpdateGeometry(geometry, GetDpi(mainHandle));
+            _compositionHost.UpdateGeometry(
+                _windowController.CurrentGeometry,
+                _windowController.CurrentDpi);
 
             if (!await _compositionHost.PrepareAsync(cancellationToken) ||
                 !_gate.MarkClipCommitted(_generation))
@@ -230,34 +218,6 @@ public sealed class WindowBlurService : IDisposable
         GC.SuppressFinalize(this);
     }
 
-    private static uint GetDpi(IntPtr hwnd)
-    {
-        try
-        {
-            var dpi = GetDpiForWindow(hwnd);
-            return dpi == 0 ? 96u : dpi;
-        }
-        catch (EntryPointNotFoundException)
-        {
-            return 96u;
-        }
-    }
-
-    [StructLayout(LayoutKind.Sequential)]
-    private struct Rect
-    {
-        public int Left;
-        public int Top;
-        public int Right;
-        public int Bottom;
-    }
-
-    [DllImport("user32.dll")]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    private static extern bool GetWindowRect(IntPtr hwnd, out Rect rect);
-
-    [DllImport("user32.dll")]
-    private static extern uint GetDpiForWindow(IntPtr hwnd);
 }
 
 public sealed class BackdropAvailabilityChangedEventArgs(bool isActive) : EventArgs

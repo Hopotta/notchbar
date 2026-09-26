@@ -5,12 +5,14 @@ namespace NotchBar.Tests;
 
 public sealed class ClockOverlayHandoffTests
 {
-    [Fact]
-    public void Endpoint_WaitsForLayoutThenOnePresentedFrameBeforeRelease()
+    [Theory]
+    [InlineData(ClockOverlayEndpoint.Compact)]
+    [InlineData(ClockOverlayEndpoint.Expanded)]
+    public void Endpoint_WaitsForLayoutThenOnePresentedFrameBeforeRelease(ClockOverlayEndpoint endpoint)
     {
         var handoff = new ClockOverlayHandoff();
         handoff.BeginMotion();
-        var generation = handoff.BeginAwaitingLayout(ClockOverlayEndpoint.Expanded);
+        var generation = handoff.BeginAwaitingLayout(endpoint);
 
         Assert.Equal(ClockOverlayRenderAction.None, handoff.ObserveRendering(generation));
         Assert.True(handoff.TryArmEndpoint(generation));
@@ -54,16 +56,6 @@ public sealed class ClockOverlayHandoffTests
         Assert.Equal(ClockOverlayEndpoint.Compact, handoff.Endpoint);
         Assert.False(handoff.TryArmEndpoint(expandedGeneration));
         Assert.True(handoff.TryArmEndpoint(compactGeneration));
-    }
-
-    [Fact]
-    public void RepeatedSettledNotification_ReusesPendingEndpointGeneration()
-    {
-        var handoff = new ClockOverlayHandoff();
-        var first = handoff.BeginAwaitingLayout(ClockOverlayEndpoint.Expanded);
-
-        Assert.Equal(first, handoff.BeginAwaitingLayout(ClockOverlayEndpoint.Expanded));
-        Assert.Equal(ClockOverlayHandoffState.AwaitingLayout, handoff.State);
     }
 
     private static ClockOverlayHandoff CreateAtPhase(

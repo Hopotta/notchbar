@@ -34,7 +34,7 @@ public sealed class NotificationDisplayTests
     [Fact]
     public void ExpiredNotification_FallsBackToRegularStatus()
     {
-        var time = new ManualTimeProvider(DateTimeOffset.Parse("2026-09-17T09:00:00Z"));
+        var time = new ManualTimerTimeProvider(DateTimeOffset.Parse("2026-09-17T09:00:00Z"));
         using var store = new StatusStore(time);
 
         store.Put(Status("Working", priority: 80), "agent");

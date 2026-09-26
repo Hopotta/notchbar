@@ -43,6 +43,9 @@ public partial class CompactView : UserControl
     {
         TitleText.Text = item.Title;
         var isClock = string.Equals(item.Id, StatusStore.ClockId, StringComparison.OrdinalIgnoreCase);
+        SecondaryText.SetResourceReference(
+            TextBlock.ForegroundProperty,
+            isClock ? "ClockDateText" : "MutedText");
         if (ApplyClockTextFormatting(isClock))
         {
             _titleBaselineMetrics = null;

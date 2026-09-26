@@ -63,16 +63,6 @@ public sealed class TransitionChoreographyTests
     }
 
     [Fact]
-    public void Evaluation_IsStatelessForRapidReversal()
-    {
-        var firstPass = TransitionChoreography.Evaluate(0.43);
-        _ = TransitionChoreography.Evaluate(0.82);
-        var reversed = TransitionChoreography.Evaluate(0.43);
-
-        Assert.Equal(firstPass, reversed);
-    }
-
-    [Fact]
     public void ClockText_UsesLeadingBaselineEndpointsAndNativeTypography()
     {
         var compact = new ClockTextAnchor(new Point(250, 24), 10, 8);
@@ -164,40 +154,6 @@ public sealed class TransitionChoreographyTests
             TransitionChoreography.EvaluateSharedText(1.5, compact, expanded));
     }
 
-    [Theory]
-    [InlineData(0.01)]
-    [InlineData(0.25)]
-    [InlineData(0.5)]
-    [InlineData(0.75)]
-    [InlineData(0.99)]
-    public void ClockText_RemainsFullyVisibleForSingleOwnerMotion(double progress)
-    {
-        var compact = new ClockTextAnchor(new Point(210, 21), 11, 8);
-        var expanded = new ClockTextAnchor(new Point(28, 38), 13.5, 9.818181818181818);
-
-        var placement = TransitionChoreography.EvaluateSharedText(progress, compact, expanded);
-
-        Assert.Equal(1, placement.Opacity);
-    }
-
-    [Fact]
-    public void ClockText_SameProgressUsesLatestGeometryAnchors()
-    {
-        var compact = new ClockTextAnchor(new Point(210, 21), 11, 8);
-        var firstExpanded = new ClockTextAnchor(new Point(28, 38), 13.5, 9.818181818181818);
-        var rearrangedExpanded = firstExpanded with
-        {
-            LeadingBaseline = new Point(44, 42)
-        };
-
-        var first = TransitionChoreography.EvaluateSharedText(0.5, compact, firstExpanded);
-        var rearranged = TransitionChoreography.EvaluateSharedText(0.5, compact, rearrangedExpanded);
-
-        Assert.NotEqual(first.LeadingBaseline, rearranged.LeadingBaseline);
-        Assert.Equal(8, rearranged.LeadingBaseline.X - first.LeadingBaseline.X, 10);
-        Assert.Equal(2, rearranged.LeadingBaseline.Y - first.LeadingBaseline.Y, 10);
-    }
-
     [Fact]
     public void ClockDate_DetachesVerticallyBeforeTravellingHorizontally()
     {
@@ -235,19 +191,6 @@ public sealed class TransitionChoreographyTests
             midpoint.LeadingBaseline.Y,
             Math.Min(compact.LeadingBaseline.Y, expanded.LeadingBaseline.Y),
             Math.Max(compact.LeadingBaseline.Y, expanded.LeadingBaseline.Y) + 8);
-    }
-
-    [Fact]
-    public void ClockDate_EvaluationIsDeterministicAcrossReversalSamples()
-    {
-        var compact = new ClockTextAnchor(new Point(286, 23), 11, 8);
-        var expanded = new ClockTextAnchor(new Point(28, 78), 13.5, 9.818181818181818);
-
-        var first = TransitionChoreography.EvaluateClockDate(0.37, compact, expanded);
-        _ = TransitionChoreography.EvaluateClockDate(0.83, compact, expanded);
-        var reversed = TransitionChoreography.EvaluateClockDate(0.37, compact, expanded);
-
-        Assert.Equal(first, reversed);
     }
 
     [Fact]

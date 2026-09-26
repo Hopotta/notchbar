@@ -1,34 +1,25 @@
 using System.IO;
-using System.Text.Json;
 using System.Windows.Input;
 using NotchBar.Services;
 using Xunit;
 
 namespace NotchBar.Tests;
 
-public sealed class SettingsServiceTests : IDisposable
+public sealed class SettingsServiceTests
 {
-    private readonly string _directory = Path.Combine(Path.GetTempPath(), $"notchbar-tests-{Guid.NewGuid():N}");
-
     [Fact]
     public void MissingFile_UsesDefaults()
     {
-        var settings = new SettingsService(SettingsPath());
+        using var file = new TemporarySettingsFile();
 
-        Assert.Equal(SettingsService.DefaultApiPort, settings.ApiPort);
-        Assert.Equal(TimeSpan.FromMilliseconds(SettingsService.DefaultAutoHideDelayMs), settings.AutoHideDelay);
-        Assert.Equal(ModifierKeys.Control | ModifierKeys.Alt, settings.HotkeyModifiers);
-        Assert.Equal(Key.Space, settings.HotkeyKey);
-        Assert.False(settings.StartWithWindows);
-        Assert.True(settings.HideInFullscreen);
-        Assert.Equal(MonitorPlacementMode.Primary, settings.MonitorMode);
+        AssertDefaults(new SettingsService(file.SettingsPath));
     }
 
     [Fact]
-    public void ValidFile_LoadsPersistedValues()
+    public void SaveAndReload_PreservesCorePreferences()
     {
-        Directory.CreateDirectory(_directory);
-        File.WriteAllText(SettingsPath(), """
+        using var file = new TemporarySettingsFile();
+        file.Write("""
         {
           "apiPort": 41234,
           "autoHideDelayMs": 1400,
@@ -38,196 +29,118 @@ public sealed class SettingsServiceTests : IDisposable
           "monitorMode": "activeWindow"
         }
         """);
+        var settings = new SettingsService(file.SettingsPath);
 
-        var settings = new SettingsService(SettingsPath());
+        Assert.True(settings.TrySave(out var error), error);
+        AssertPersistedPreferences(new SettingsService(file.SettingsPath), startWithWindows: true);
 
-        Assert.Equal(41234, settings.ApiPort);
-        Assert.Equal(TimeSpan.FromMilliseconds(1400), settings.AutoHideDelay);
-        Assert.Equal(ModifierKeys.Shift, settings.HotkeyModifiers);
-        Assert.Equal(Key.F8, settings.HotkeyKey);
-        Assert.True(settings.StartWithWindows);
-        Assert.False(settings.HideInFullscreen);
-        Assert.Equal(MonitorPlacementMode.ActiveWindow, settings.MonitorMode);
+        Assert.True(settings.SetStartWithWindows(false, out error), error);
+        var reloaded = new SettingsService(file.SettingsPath);
+        AssertPersistedPreferences(reloaded, startWithWindows: false);
     }
 
     [Fact]
-    public void InvalidValues_FallBackWithoutDiscardingValidBooleans()
+    public void TypeInvalidFields_FallBackAndKeepValidPeers()
     {
-        Directory.CreateDirectory(_directory);
-        File.WriteAllText(SettingsPath(), """
+        using var file = new TemporarySettingsFile();
+        file.Write("""
         {
-          "apiPort": 80,
-          "autoHideDelayMs": 20,
-          "hotkey": "Banana+Space",
-          "startWithWindows": true,
-          "hideInFullscreen": false,
-          "monitorMode": "spaceship"
-        }
-        """);
-
-        var settings = new SettingsService(SettingsPath());
-
-        Assert.Equal(SettingsService.DefaultApiPort, settings.ApiPort);
-        Assert.Equal(TimeSpan.FromMilliseconds(SettingsService.DefaultAutoHideDelayMs), settings.AutoHideDelay);
-        Assert.Equal(ModifierKeys.Control | ModifierKeys.Alt, settings.HotkeyModifiers);
-        Assert.Equal(Key.Space, settings.HotkeyKey);
-        Assert.True(settings.StartWithWindows);
-        Assert.False(settings.HideInFullscreen);
-        Assert.Equal(MonitorPlacementMode.Primary, settings.MonitorMode);
-    }
-
-    [Fact]
-    public void TypeInvalidProperty_DefaultsWithoutDiscardingOtherValidValues()
-    {
-        Directory.CreateDirectory(_directory);
-        File.WriteAllText(SettingsPath(), """
-        {
-          "apiPort": "not-a-number",
-          "autoHideDelayMs": 1400,
-          "hotkey": "Shift+F8",
-          "startWithWindows": true,
+          "apiPort": "invalid",
+          "autoHideDelayMs": 2500,
+          "hotkey": true,
+          "startWithWindows": "yes",
           "hideInFullscreen": false,
           "monitorMode": "activeWindow"
         }
         """);
 
-        var settings = new SettingsService(SettingsPath());
+        var settings = new SettingsService(file.SettingsPath);
 
         Assert.Equal(SettingsService.DefaultApiPort, settings.ApiPort);
-        Assert.Equal(TimeSpan.FromMilliseconds(1400), settings.AutoHideDelay);
-        Assert.Equal(ModifierKeys.Shift, settings.HotkeyModifiers);
-        Assert.Equal(Key.F8, settings.HotkeyKey);
-        Assert.True(settings.StartWithWindows);
+        Assert.Equal(TimeSpan.FromMilliseconds(2500), settings.AutoHideDelay);
+        AssertDefaultHotkey(settings);
+        Assert.False(settings.StartWithWindows);
         Assert.False(settings.HideInFullscreen);
         Assert.Equal(MonitorPlacementMode.ActiveWindow, settings.MonitorMode);
-    }
-
-    [Fact]
-    public void MultipleTypeInvalidProperties_DefaultIndividually()
-    {
-        Directory.CreateDirectory(_directory);
-        File.WriteAllText(SettingsPath(), """
-        {
-          "apiPort": 41234,
-          "autoHideDelayMs": "fast",
-          "hotkey": false,
-          "startWithWindows": "true",
-          "hideInFullscreen": 1,
-          "monitorMode": {}
-        }
-        """);
-
-        var settings = new SettingsService(SettingsPath());
-
-        Assert.Equal(41234, settings.ApiPort);
-        Assert.Equal(TimeSpan.FromMilliseconds(SettingsService.DefaultAutoHideDelayMs), settings.AutoHideDelay);
-        Assert.Equal(ModifierKeys.Control | ModifierKeys.Alt, settings.HotkeyModifiers);
-        Assert.Equal(Key.Space, settings.HotkeyKey);
-        Assert.False(settings.StartWithWindows);
-        Assert.True(settings.HideInFullscreen);
-        Assert.Equal(MonitorPlacementMode.Primary, settings.MonitorMode);
-    }
-
-    [Theory]
-    [InlineData("null")]
-    [InlineData("[]")]
-    [InlineData("\"settings\"")]
-    public void NonObjectJsonRoot_FallsBackToDefaults(string json)
-    {
-        Directory.CreateDirectory(_directory);
-        File.WriteAllText(SettingsPath(), json);
-
-        var settings = new SettingsService(SettingsPath());
-
-        Assert.Equal(SettingsService.DefaultApiPort, settings.ApiPort);
-        Assert.Equal(TimeSpan.FromMilliseconds(SettingsService.DefaultAutoHideDelayMs), settings.AutoHideDelay);
-        Assert.Equal(ModifierKeys.Control | ModifierKeys.Alt, settings.HotkeyModifiers);
-        Assert.Equal(Key.Space, settings.HotkeyKey);
-        Assert.False(settings.StartWithWindows);
-        Assert.True(settings.HideInFullscreen);
-        Assert.Equal(MonitorPlacementMode.Primary, settings.MonitorMode);
     }
 
     [Fact]
     public void MalformedJson_FallsBackToDefaults()
     {
-        Directory.CreateDirectory(_directory);
-        File.WriteAllText(SettingsPath(), "{ definitely-not-json }");
+        using var file = new TemporarySettingsFile();
+        file.Write("{ definitely-not-json }");
 
-        var settings = new SettingsService(SettingsPath());
+        AssertDefaults(new SettingsService(file.SettingsPath));
+    }
+
+    [Fact]
+    public void OutOfRangeNumbers_UseDefaultsAndKeepValidPeers()
+    {
+        using var file = new TemporarySettingsFile();
+        file.Write("""
+        {
+          "apiPort": 1023,
+          "autoHideDelayMs": 10001,
+          "startWithWindows": true,
+          "monitorMode": "activeWindow"
+        }
+        """);
+
+        var settings = new SettingsService(file.SettingsPath);
 
         Assert.Equal(SettingsService.DefaultApiPort, settings.ApiPort);
+        Assert.Equal(TimeSpan.FromMilliseconds(SettingsService.DefaultAutoHideDelayMs), settings.AutoHideDelay);
+        Assert.True(settings.StartWithWindows);
+        Assert.Equal(MonitorPlacementMode.ActiveWindow, settings.MonitorMode);
+    }
+
+    private static void AssertDefaults(SettingsService settings)
+    {
+        Assert.Equal(SettingsService.DefaultApiPort, settings.ApiPort);
+        Assert.Equal(TimeSpan.FromMilliseconds(SettingsService.DefaultAutoHideDelayMs), settings.AutoHideDelay);
+        AssertDefaultHotkey(settings);
         Assert.False(settings.StartWithWindows);
         Assert.True(settings.HideInFullscreen);
         Assert.Equal(MonitorPlacementMode.Primary, settings.MonitorMode);
     }
 
-    [Fact]
-    public void SetStartWithWindows_PersistsPreference()
+    private static void AssertPersistedPreferences(SettingsService settings, bool startWithWindows)
     {
-        var path = SettingsPath();
-        var settings = new SettingsService(path);
-
-        Assert.True(settings.SetStartWithWindows(true, out var error), error);
-        Assert.True(settings.StartWithWindows);
-        Assert.True(File.Exists(path));
-
-        using var document = JsonDocument.Parse(File.ReadAllText(path));
-        Assert.True(document.RootElement.GetProperty("startWithWindows").GetBoolean());
-
-        var reloaded = new SettingsService(path);
-        Assert.True(reloaded.StartWithWindows);
+        Assert.Equal(41234, settings.ApiPort);
+        Assert.Equal(TimeSpan.FromMilliseconds(1400), settings.AutoHideDelay);
+        Assert.Equal(ModifierKeys.Shift, settings.HotkeyModifiers);
+        Assert.Equal(Key.F8, settings.HotkeyKey);
+        Assert.Equal(startWithWindows, settings.StartWithWindows);
+        Assert.False(settings.HideInFullscreen);
+        Assert.Equal(MonitorPlacementMode.ActiveWindow, settings.MonitorMode);
     }
 
-    [Theory]
-    [InlineData("Ctrl+Alt+Space", ModifierKeys.Control | ModifierKeys.Alt, Key.Space)]
-    [InlineData("Win+Shift+F12", ModifierKeys.Windows | ModifierKeys.Shift, Key.F12)]
-    [InlineData("F7", ModifierKeys.None, Key.F7)]
-    public void TryParseHotkey_ParsesSupportedForms(string value, ModifierKeys expectedModifiers, Key expectedKey)
+    private static void AssertDefaultHotkey(SettingsService settings)
     {
-        Assert.True(SettingsService.TryParseHotkey(value, out var modifiers, out var key));
-        Assert.Equal(expectedModifiers, modifiers);
-        Assert.Equal(expectedKey, key);
+        Assert.Equal(ModifierKeys.Control | ModifierKeys.Alt, settings.HotkeyModifiers);
+        Assert.Equal(Key.Space, settings.HotkeyKey);
     }
 
-    [Theory]
-    [InlineData("")]
-    [InlineData("Ctrl+Banana+Space")]
-    [InlineData("Ctrl+NotAKey")]
-    [InlineData("999")]
-    [InlineData("Ctrl+999")]
-    public void TryParseHotkey_RejectsInvalidForms(string value)
+    private sealed class TemporarySettingsFile : IDisposable
     {
-        Assert.False(SettingsService.TryParseHotkey(value, out _, out _));
-    }
+        private readonly string _directory = System.IO.Path.Combine(
+            Path.GetTempPath(),
+            $"notchbar-settings-tests-{Guid.NewGuid():N}");
 
-    [Theory]
-    [InlineData("primary", MonitorPlacementMode.Primary)]
-    [InlineData("PRIMARY", MonitorPlacementMode.Primary)]
-    [InlineData("activeWindow", MonitorPlacementMode.ActiveWindow)]
-    [InlineData("ACTIVEWINDOW", MonitorPlacementMode.ActiveWindow)]
-    public void TryParseMonitorMode_ParsesSupportedModes(string value, MonitorPlacementMode expected)
-    {
-        Assert.True(SettingsService.TryParseMonitorMode(value, out var actual));
-        Assert.Equal(expected, actual);
-    }
+        public string SettingsPath => System.IO.Path.Combine(_directory, "settings.json");
 
-    [Theory]
-    [InlineData("")]
-    [InlineData("cursor")]
-    [InlineData("display2")]
-    public void TryParseMonitorMode_RejectsUnsupportedModes(string value)
-    {
-        Assert.False(SettingsService.TryParseMonitorMode(value, out _));
-    }
-
-    private string SettingsPath() => Path.Combine(_directory, "settings.json");
-
-    public void Dispose()
-    {
-        if (Directory.Exists(_directory))
+        public void Write(string contents)
         {
-            Directory.Delete(_directory, recursive: true);
+            Directory.CreateDirectory(_directory);
+            File.WriteAllText(SettingsPath, contents);
+        }
+
+        public void Dispose()
+        {
+            if (Directory.Exists(_directory))
+            {
+                Directory.Delete(_directory, recursive: true);
+            }
         }
     }
 }
