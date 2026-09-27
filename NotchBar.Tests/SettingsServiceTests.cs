@@ -16,6 +16,39 @@ public sealed class SettingsServiceTests
     }
 
     [Fact]
+    public void LegacyDefaultHideTrue_MigratesToBadgeSoTheNewFeatureIsVisible()
+    {
+        using var file = new TemporarySettingsFile();
+        file.Write("""
+        {
+          "hideInFullscreen": true
+        }
+        """);
+
+        var settings = new SettingsService(file.SettingsPath);
+
+        Assert.Equal(FullscreenPresentationMode.Badge, settings.FullscreenMode);
+        Assert.False(settings.HideInFullscreen);
+    }
+
+    [Fact]
+    public void ExplicitFullscreenMode_TakesPrecedenceOverLegacyPreference()
+    {
+        using var file = new TemporarySettingsFile();
+        file.Write("""
+        {
+          "fullscreenMode": "hide",
+          "hideInFullscreen": false
+        }
+        """);
+
+        var settings = new SettingsService(file.SettingsPath);
+
+        Assert.Equal(FullscreenPresentationMode.Hide, settings.FullscreenMode);
+        Assert.True(settings.HideInFullscreen);
+    }
+
+    [Fact]
     public void SaveAndReload_PreservesCorePreferences()
     {
         using var file = new TemporarySettingsFile();
@@ -61,6 +94,7 @@ public sealed class SettingsServiceTests
         AssertDefaultHotkey(settings);
         Assert.False(settings.StartWithWindows);
         Assert.False(settings.HideInFullscreen);
+        Assert.Equal(FullscreenPresentationMode.Normal, settings.FullscreenMode);
         Assert.Equal(MonitorPlacementMode.ActiveWindow, settings.MonitorMode);
     }
 
@@ -100,7 +134,8 @@ public sealed class SettingsServiceTests
         Assert.Equal(TimeSpan.FromMilliseconds(SettingsService.DefaultAutoHideDelayMs), settings.AutoHideDelay);
         AssertDefaultHotkey(settings);
         Assert.False(settings.StartWithWindows);
-        Assert.True(settings.HideInFullscreen);
+        Assert.False(settings.HideInFullscreen);
+        Assert.Equal(FullscreenPresentationMode.Badge, settings.FullscreenMode);
         Assert.Equal(MonitorPlacementMode.Primary, settings.MonitorMode);
     }
 
@@ -112,6 +147,7 @@ public sealed class SettingsServiceTests
         Assert.Equal(Key.F8, settings.HotkeyKey);
         Assert.Equal(startWithWindows, settings.StartWithWindows);
         Assert.False(settings.HideInFullscreen);
+        Assert.Equal(FullscreenPresentationMode.Normal, settings.FullscreenMode);
         Assert.Equal(MonitorPlacementMode.ActiveWindow, settings.MonitorMode);
     }
 

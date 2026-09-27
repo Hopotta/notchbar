@@ -11,6 +11,7 @@ public sealed class WindowController : IDisposable
 {
     public const double DefaultWindowWidth = 424;
     public const double CompactHeight = 37;
+    public const double FullscreenBadgeWidth = 32;
     public const double DefaultExpandedHeight = 230;
     public const double HiddenTriggerHeight = 2;
     private const double MinCompactWidth = 286;
@@ -26,7 +27,11 @@ public sealed class WindowController : IDisposable
     private const uint SwpNoSize = 0x0001;
     private const uint SwpNoZOrder = 0x0004;
     private const uint SwpNoActivate = 0x0010;
+    private const uint SwpNoMove = 0x0002;
+    private const uint SwpFrameChanged = 0x0020;
     private const uint SwpShowWindow = 0x0040;
+    private const int GwlExStyle = -20;
+    private const long WsExTransparent = 0x00000020L;
     private const int SwHide = 0;
     private const int WmNcHitTest = 0x0084;
     private const int HtTransparent = -1;
@@ -41,6 +46,9 @@ public sealed class WindowController : IDisposable
     private bool _committingGeometry;
     private bool _needsDpiHandshake = true;
     private bool _isSuppressed;
+    private bool _fullscreenBadgeActive;
+    private bool _fullscreenPassthrough;
+    private NotchState _requestedState = NotchState.Hidden;
     private IntPtr _companionHandle;
     private Action<WindowEnvelopeGeometry, uint>? _companionGeometryChanged;
     private Action? _companionCommitFailed;
@@ -134,6 +142,7 @@ public sealed class WindowController : IDisposable
         _handle = new WindowInteropHelper(_window).EnsureHandle();
         _source = HwndSource.FromHwnd(_handle);
         _source?.AddHook(WindowMessageHook);
+        ApplyFullscreenPassthroughStyle();
         _needsDpiHandshake = true;
         InvalidateCommittedGeometry();
         CommitFrame(_motion.Current);
@@ -182,6 +191,75 @@ public sealed class WindowController : IDisposable
         _isSuppressed = suppressed;
     }
 
+    public void SetFullscreenBadgeActive(bool active)
+    {
+        if (_fullscreenBadgeActive == active || _disposed)
+        {
+            return;
+        }
+
+        _fullscreenBadgeActive = active;
+        var animate = SystemParameters.ClientAreaAnimation &&
+            !_isSuppressed &&
+            _handle != IntPtr.Zero;
+        _motion.SetFullscreenBadge(active, animate);
+        _motion.Retarget(_requestedState, animate);
+        ContinueOrCommit(animate);
+    }
+
+    public void SetFullscreenPassthrough(bool enabled)
+    {
+        if (_fullscreenPassthrough == enabled)
+        {
+            return;
+        }
+
+        _fullscreenPassthrough = enabled;
+        ApplyFullscreenPassthroughStyle();
+    }
+
+    /// <summary>
+    /// Restores the passive overlay above a newly foregrounded full-screen app
+    /// without changing its fixed envelope, rendered mask, or current opacity.
+    /// This is intentionally called only for full-screen identity transitions,
+    /// never from the per-frame motion path.
+    /// </summary>
+    public bool ReassertFullscreenZOrder()
+    {
+        if (_disposed || _handle == IntPtr.Zero || _isSuppressed || !_fullscreenBadgeActive)
+        {
+            return false;
+        }
+
+        var flags = SwpNoMove | SwpNoSize | SwpNoActivate;
+        var companionRaised = true;
+        if (_companionActive && _companionHandle != IntPtr.Zero)
+        {
+            // Raise the backdrop first, then the main layered HWND so the
+            // interactive/pass-through island remains visually above it.
+            companionRaised = SetWindowPos(_companionHandle, HwndTopmost, 0, 0, 0, 0, flags);
+        }
+
+        // Keep the main HWND above the companion even if the latter was
+        // destroyed during the brief transition between context snapshots.
+        var mainRaised = SetWindowPos(_handle, HwndTopmost, 0, 0, 0, 0, flags);
+        return companionRaised && mainRaised;
+    }
+
+    public void SetFullscreenBadgeContentVisible(bool visible)
+    {
+        if (_disposed)
+        {
+            return;
+        }
+
+        var animate = SystemParameters.ClientAreaAnimation &&
+            !_isSuppressed &&
+            _handle != IntPtr.Zero;
+        _motion.SetBadgeContentVisible(visible, animate);
+        ContinueOrCommit(animate);
+    }
+
     public void RefreshDpiGeometry()
     {
         if (_disposed || _handle == IntPtr.Zero)
@@ -196,6 +274,7 @@ public sealed class WindowController : IDisposable
 
     public void Apply(NotchState state)
     {
+        _requestedState = state;
         var animate = SystemParameters.ClientAreaAnimation &&
             !_isSuppressed &&
             _handle != IntPtr.Zero;
@@ -434,9 +513,15 @@ public sealed class WindowController : IDisposable
         IntPtr lParam,
         ref bool handled)
     {
-        if (message != WmNcHitTest || _isSuppressed)
+        if (message != WmNcHitTest)
         {
             return IntPtr.Zero;
+        }
+
+        if (_isSuppressed || _fullscreenPassthrough)
+        {
+            handled = true;
+            return new IntPtr(HtTransparent);
         }
 
         // WM_NCHITTEST packs signed screen coordinates in lParam. Do not use
@@ -461,6 +546,33 @@ public sealed class WindowController : IDisposable
 
         handled = true;
         return new IntPtr(HtTransparent);
+    }
+
+    private void ApplyFullscreenPassthroughStyle()
+    {
+        if (_handle == IntPtr.Zero)
+        {
+            return;
+        }
+
+        var currentStyle = GetWindowLongPtr(_handle, GwlExStyle).ToInt64();
+        var nextStyle = _fullscreenPassthrough
+            ? currentStyle | WsExTransparent
+            : currentStyle & ~WsExTransparent;
+        if (nextStyle == currentStyle)
+        {
+            return;
+        }
+
+        _ = SetWindowLongPtr(_handle, GwlExStyle, new IntPtr(nextStyle));
+        _ = SetWindowPos(
+            _handle,
+            IntPtr.Zero,
+            0,
+            0,
+            0,
+            0,
+            SwpNoMove | SwpNoSize | SwpNoZOrder | SwpNoActivate | SwpFrameChanged);
     }
 
     public void Dispose()
@@ -625,6 +737,12 @@ public sealed class WindowController : IDisposable
     [DllImport("user32.dll")]
     private static extern uint GetDpiForWindow(IntPtr hWnd);
 
+    [DllImport("user32.dll", EntryPoint = "GetWindowLongPtrW", SetLastError = true)]
+    private static extern IntPtr GetWindowLongPtr(IntPtr hWnd, int index);
+
+    [DllImport("user32.dll", EntryPoint = "SetWindowLongPtrW", SetLastError = true)]
+    private static extern IntPtr SetWindowLongPtr(IntPtr hWnd, int index, IntPtr newValue);
+
     [StructLayout(LayoutKind.Sequential)]
     private struct NativePoint
     {
@@ -674,7 +792,19 @@ public readonly record struct WindowEnvelopeGeometry(
             1,
             envelopeHeight);
         var envelopeX = monitorBounds.Left + Math.Max(0, (monitorBounds.Width - envelopeWidth) / 2);
-        var islandScreenX = monitorBounds.Left + Math.Max(0, (monitorBounds.Width - islandWidth) / 2);
+        var badgeProgress = Math.Clamp(frame.BadgeProgress, 0d, 1d);
+        var compactBodyWidth = Math.Max(1, frame.Width - WindowController.FullscreenBadgeWidth * badgeProgress);
+        var compactBodyWidthPixels = Math.Clamp(
+            ScaleToPixels(compactBodyWidth, scale),
+            1,
+            envelopeWidth);
+        var centeredIslandX = monitorBounds.Left + Math.Max(0, (monitorBounds.Width - compactBodyWidthPixels) / 2);
+        var anchorWidthPixels = ScaleToPixels(Math.Max(1, frame.BadgeAnchorWidth), scale);
+        var anchoredIslandX = monitorBounds.Left + Math.Max(0, (monitorBounds.Width - anchorWidthPixels) / 2);
+        var anchorProgress = Math.Clamp(frame.BadgeAnchorProgress, 0d, 1d);
+        var islandScreenX = (int)Math.Round(
+            centeredIslandX + ((anchoredIslandX - centeredIslandX) * anchorProgress),
+            MidpointRounding.AwayFromZero);
         var islandX = Math.Clamp(islandScreenX - envelopeX, 0, envelopeWidth - islandWidth);
         var hiddenTopInsetPixels = ScaleToPixels(HiddenTopInset, scale);
         var islandTopOffsetPixels = ScaleToPixels(frame.TopOffset, scale);
@@ -693,6 +823,21 @@ public readonly record struct WindowEnvelopeGeometry(
 
     private static int ScaleToPixels(double value, double scale) =>
         (int)Math.Round(value * scale, MidpointRounding.AwayFromZero);
+}
+
+/// <summary>Compact content and badge widths constrained to the visible island bounds.</summary>
+public readonly record struct FullscreenBadgeLayout(double CompactBodyWidth, double BadgeWidth)
+{
+    public static FullscreenBadgeLayout Calculate(double availableWidth, WindowMotionFrame frame)
+    {
+        availableWidth = Math.Max(1d, availableWidth);
+        var requestedBadgeWidth = WindowController.FullscreenBadgeWidth * Math.Clamp(frame.BadgeProgress, 0d, 1d);
+        var badgeWidth = Math.Min(requestedBadgeWidth, Math.Max(0d, availableWidth - 1d));
+        var bodyWidth = Math.Min(
+            Math.Max(1d, frame.Width - requestedBadgeWidth),
+            Math.Max(1d, availableWidth - badgeWidth));
+        return new FullscreenBadgeLayout(bodyWidth, badgeWidth);
+    }
 }
 
 public sealed class WindowMotionFrameChangedEventArgs(

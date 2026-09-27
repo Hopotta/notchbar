@@ -10,6 +10,7 @@ public sealed class SettingsService
     public const int DefaultAutoHideDelayMs = 900;
     public const string DefaultHotkey = "Ctrl+Alt+Space";
     public const string DefaultMonitorMode = "primary";
+    public const string DefaultFullscreenMode = "badge";
 
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -26,6 +27,7 @@ public sealed class SettingsService
         _settings = LoadAndNormalize(_settingsPath);
         (HotkeyModifiers, HotkeyKey) = ParseHotkeyOrDefault(_settings.Hotkey);
         MonitorMode = ParseMonitorModeOrDefault(_settings.MonitorMode);
+        FullscreenMode = ParseFullscreenModeOrDefault(_settings.FullscreenMode);
     }
 
     public int ApiPort => _settings.ApiPort;
@@ -33,7 +35,8 @@ public sealed class SettingsService
     public Key HotkeyKey { get; private set; }
     public TimeSpan AutoHideDelay => TimeSpan.FromMilliseconds(_settings.AutoHideDelayMs);
     public bool StartWithWindows => _settings.StartWithWindows;
-    public bool HideInFullscreen => _settings.HideInFullscreen;
+    public FullscreenPresentationMode FullscreenMode { get; }
+    public bool HideInFullscreen => FullscreenMode == FullscreenPresentationMode.Hide;
     public MonitorPlacementMode MonitorMode { get; }
     public string SettingsPath => _settingsPath;
 
@@ -146,6 +149,30 @@ public sealed class SettingsService
         return false;
     }
 
+    public static bool TryParseFullscreenMode(string? value, out FullscreenPresentationMode mode)
+    {
+        if (string.Equals(value, "badge", StringComparison.OrdinalIgnoreCase))
+        {
+            mode = FullscreenPresentationMode.Badge;
+            return true;
+        }
+
+        if (string.Equals(value, "hide", StringComparison.OrdinalIgnoreCase))
+        {
+            mode = FullscreenPresentationMode.Hide;
+            return true;
+        }
+
+        if (string.Equals(value, "normal", StringComparison.OrdinalIgnoreCase))
+        {
+            mode = FullscreenPresentationMode.Normal;
+            return true;
+        }
+
+        mode = FullscreenPresentationMode.Badge;
+        return false;
+    }
+
     private static (ModifierKeys Modifiers, Key Key) ParseHotkeyOrDefault(string value)
     {
         if (TryParseHotkey(value, out var modifiers, out var key))
@@ -160,6 +187,11 @@ public sealed class SettingsService
     private static MonitorPlacementMode ParseMonitorModeOrDefault(string value)
     {
         return TryParseMonitorMode(value, out var mode) ? mode : MonitorPlacementMode.Primary;
+    }
+
+    private static FullscreenPresentationMode ParseFullscreenModeOrDefault(string value)
+    {
+        return TryParseFullscreenMode(value, out var mode) ? mode : FullscreenPresentationMode.Badge;
     }
 
     private static NotchBarSettings LoadAndNormalize(string path)
@@ -190,13 +222,17 @@ public sealed class SettingsService
         var monitorMode = TryParseMonitorMode(settings.MonitorMode, out var parsedMonitorMode)
             ? ToSettingValue(parsedMonitorMode)
             : DefaultMonitorMode;
+        var fullscreenMode = TryParseFullscreenMode(settings.FullscreenMode, out var parsedFullscreenMode)
+            ? ToSettingValue(parsedFullscreenMode)
+            : DefaultFullscreenMode;
 
         return settings with
         {
             ApiPort = apiPort,
             AutoHideDelayMs = autoHideDelayMs,
             Hotkey = hotkey,
-            MonitorMode = monitorMode
+            MonitorMode = monitorMode,
+            FullscreenMode = fullscreenMode
         };
     }
 
@@ -214,13 +250,28 @@ public sealed class SettingsService
             StartWithWindows = TryGetBoolean(root, "startWithWindows", out var startWithWindows)
                 ? startWithWindows
                 : defaults.StartWithWindows,
-            HideInFullscreen = TryGetBoolean(root, "hideInFullscreen", out var hideInFullscreen)
-                ? hideInFullscreen
-                : defaults.HideInFullscreen,
             MonitorMode = TryGetString(root, "monitorMode", out var monitorMode)
                 ? monitorMode
-                : defaults.MonitorMode
+                : defaults.MonitorMode,
+            FullscreenMode = ReadFullscreenMode(root, defaults.FullscreenMode)
         };
+    }
+
+    private static string ReadFullscreenMode(JsonElement root, string fallback)
+    {
+        if (TryGetString(root, "fullscreenMode", out var fullscreenMode))
+        {
+            return TryParseFullscreenMode(fullscreenMode, out var parsed)
+                ? ToSettingValue(parsed)
+                : DefaultFullscreenMode;
+        }
+
+        // New installs default to the app badge, including existing settings
+        // files that only contain the old default hideInFullscreen:true.
+        // Preserve the old explicit opt-in to normal behavior when it was false.
+        return TryGetBoolean(root, "hideInFullscreen", out var legacyHide) && !legacyHide
+            ? "normal"
+            : fallback;
     }
 
     private static bool TryGetInt32(JsonElement root, string propertyName, out int value)
@@ -261,6 +312,13 @@ public sealed class SettingsService
     private static string ToSettingValue(MonitorPlacementMode mode) =>
         mode == MonitorPlacementMode.ActiveWindow ? "activeWindow" : "primary";
 
+    private static string ToSettingValue(FullscreenPresentationMode mode) => mode switch
+    {
+        FullscreenPresentationMode.Hide => "hide",
+        FullscreenPresentationMode.Normal => "normal",
+        _ => "badge"
+    };
+
     private static string GetDefaultSettingsPath()
     {
         var localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
@@ -274,6 +332,13 @@ public sealed record NotchBarSettings
     public int AutoHideDelayMs { get; init; } = SettingsService.DefaultAutoHideDelayMs;
     public string Hotkey { get; init; } = SettingsService.DefaultHotkey;
     public bool StartWithWindows { get; init; }
-    public bool HideInFullscreen { get; init; } = true;
     public string MonitorMode { get; init; } = SettingsService.DefaultMonitorMode;
+    public string FullscreenMode { get; init; } = SettingsService.DefaultFullscreenMode;
+}
+
+public enum FullscreenPresentationMode
+{
+    Badge,
+    Hide,
+    Normal
 }

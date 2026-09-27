@@ -56,12 +56,20 @@ The file is created with defaults on first launch. Supported settings are:
   "autoHideDelayMs": 900,
   "hotkey": "Ctrl+Alt+Space",
   "startWithWindows": false,
-  "hideInFullscreen": true,
+  "fullscreenMode": "badge",
   "monitorMode": "primary"
 }
 ```
 
 `apiPort` is accepted from 1024 through 65535 and `autoHideDelayMs` from 100 through 10000. Invalid values and malformed hotkeys fall back to safe defaults. A malformed JSON file is ignored rather than preventing NotchBar from starting.
+
+`fullscreenMode` accepts:
+
+- `badge` (default): while a fullscreen app is detected, show a compact status/clock badge with the foreground app's icon on the right when an icon is available.
+- `hide`: fully hide NotchBar while a fullscreen app is detected.
+- `normal`: keep the island's regular behavior over fullscreen, without the app badge or fullscreen hiding.
+
+If `fullscreenMode` is absent, the legacy `hideInFullscreen` setting is migrated: `false` maps to `normal`, and `true` maps to `badge`. If neither setting is present, the default is `badge`. An invalid explicit `fullscreenMode` also falls back to `badge`; a valid explicit value takes precedence over the legacy setting. Set `fullscreenMode` to `hide` to retain full hiding during fullscreen.
 
 `monitorMode` accepts:
 
@@ -76,7 +84,7 @@ NotchBar declares Per-Monitor V2 DPI awareness. WPF continues to lay out the con
 
 When moving between displays, the window is re-centered using the target display's real bounds. The current implementation supports primary-display placement and active-window following; selecting an arbitrary display by device name is intentionally deferred.
 
-When `hideInFullscreen` is enabled, NotchBar polls the foreground window and suppresses the island while that window covers the full bounds of the relevant display. In `primary` mode, only fullscreen windows on the primary display suppress the island. In `activeWindow` mode, fullscreen on the current foreground display suppresses it. Suppression does not overwrite the current Compact / Expanded / Pinned state, so pinned content returns after fullscreen exits. The detector intentionally uses a lightweight bounds heuristic rather than app-specific game or media detection.
+Fullscreen behavior follows `fullscreenMode` on the relevant display. In `primary` mode, only fullscreen windows on the primary display count; in `activeWindow` mode, the foreground display is used. `badge` shows the compact status/clock and, when available, the fullscreen app icon at the right with a smooth transition. The badge is passive and click-through. `hide` fully hides the island until fullscreen ends, while `normal` keeps the regular island behavior. Fullscreen context is refreshed from Windows foreground and window-location events, with a slower polling fallback. Detection uses window bounds rather than app-specific game or media integration, and icon lookup is best-effort; some windows may not provide a usable icon. A true exclusive-fullscreen game may not display a desktop overlay at all.
 
 ## Tray, startup, and single-instance behavior
 
@@ -149,7 +157,7 @@ The built-in `clock` item cannot be deleted or overwritten.
 
 ### Send a one-shot notification
 
-A notification creates a short-lived item. Its default TTL is 8 seconds and it wakes Compact unless fullscreen suppression is currently active.
+A notification creates a short-lived item. Its default TTL is 8 seconds and it wakes Compact unless the current fullscreen policy hides the island.
 
 ```powershell
 $notify = @{

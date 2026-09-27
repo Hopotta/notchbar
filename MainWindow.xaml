@@ -48,6 +48,7 @@
                     CornerRadius="1" />
 
             <Grid x:Name="CompactHost"
+                  HorizontalAlignment="Left"
                   Visibility="Collapsed">
                 <ui:CompactView x:Name="CompactContent" />
             </Grid>
@@ -74,6 +75,56 @@
                            Foreground="{DynamicResource ClockDateText}"
                            FontSize="11"
                            FontWeight="SemiBold" />
+            </Canvas>
+
+            <Canvas x:Name="FullscreenBadgeLayer"
+                    Panel.ZIndex="12"
+                    HorizontalAlignment="Stretch"
+                    VerticalAlignment="Stretch"
+                    IsHitTestVisible="False">
+                <Canvas x:Name="FullscreenBadgeHost"
+                        Canvas.Left="0"
+                        Canvas.Top="0"
+                        Width="32"
+                        Height="37"
+                        ClipToBounds="False"
+                        Visibility="Collapsed">
+                    <Border Canvas.Left="0"
+                            Canvas.Top="10"
+                            Width="1"
+                            Height="17"
+                            Background="{DynamicResource PanelBorder}"
+                            Opacity="0.9" />
+                    <Border x:Name="FullscreenBadgeChip"
+                            Canvas.Left="6"
+                            Canvas.Top="8"
+                            Width="20"
+                            Height="20"
+                            Background="{DynamicResource GlassChipBackground}"
+                            BorderBrush="{DynamicResource InnerHairline}"
+                            BorderThickness="1"
+                            CornerRadius="6"
+                            SnapsToDevicePixels="True">
+                        <Grid x:Name="FullscreenBadgeContent">
+                            <Image x:Name="FullscreenBadgeIcon"
+                                   Width="16"
+                                   Height="16"
+                                   HorizontalAlignment="Center"
+                                   VerticalAlignment="Center"
+                                   Stretch="Uniform"
+                                   SnapsToDevicePixels="True" />
+                            <Path x:Name="FullscreenBadgePlaceholder"
+                                  Width="12"
+                                  Height="10"
+                                  HorizontalAlignment="Center"
+                                  VerticalAlignment="Center"
+                                  Stretch="Fill"
+                                  Stroke="{DynamicResource SecondaryText}"
+                                  StrokeThickness="1.1"
+                                  Data="M1,1 H11 V9 H1 Z M1,3 H11" />
+                        </Grid>
+                    </Border>
+                </Canvas>
             </Canvas>
             </Grid>
         </Border>

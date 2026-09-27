@@ -29,10 +29,25 @@ public sealed class WindowTransitionMotion
         response: 0.34,
         settledDistance: 0.001,
         settledVelocity: 0.02);
+    private readonly SpringMotion _fullscreenBadge = new(
+        response: 0.30,
+        settledDistance: 0.001,
+        settledVelocity: 0.02);
+    private readonly SpringMotion _badgeContent = new(
+        initialValue: 1d,
+        response: 0.24,
+        settledDistance: 0.001,
+        settledVelocity: 0.02);
+    private readonly SpringMotion _badgeAnchor = new(
+        response: 0.30,
+        settledDistance: 0.001,
+        settledVelocity: 0.02);
 
     private double _compactWidth = WindowController.DefaultWindowWidth;
     private double _expandedWidth = WindowController.DefaultWindowWidth;
     private double _expandedHeight = WindowController.DefaultExpandedHeight;
+    private bool _fullscreenBadgeTarget;
+    private double _fullscreenBadgeAnchorWidth;
 
     public WindowTransitionMotion()
     {
@@ -45,15 +60,33 @@ public sealed class WindowTransitionMotion
         _width.IsSettled &&
         _height.IsSettled &&
         _top.IsSettled &&
-        _expansion.IsSettled;
+        _expansion.IsSettled &&
+        _fullscreenBadge.IsSettled &&
+        _badgeContent.IsSettled &&
+        _badgeAnchor.IsSettled;
 
-    public WindowMotionFrame Current => new(
-        _width.Value,
-        _height.Value,
-        _top.Value,
-        Math.Clamp(_expansion.Value, 0d, 1d),
-        TargetState,
-        IsSettled);
+    public WindowMotionFrame Current
+    {
+        get
+        {
+            var expansionProgress = Math.Clamp(_expansion.Value, 0d, 1d);
+            // Let an expanded island collapse before the side badge takes its
+            // full width. This keeps the fixed envelope unclipped through the
+            // transition while still sharing the same spring/rendering clock.
+            var badgeProgress = Math.Clamp(_fullscreenBadge.Value, 0d, 1d) * (1d - expansionProgress);
+            return new WindowMotionFrame(
+                _width.Value + (WindowController.FullscreenBadgeWidth * badgeProgress),
+                _height.Value,
+                _top.Value,
+                expansionProgress,
+                TargetState,
+                IsSettled,
+                badgeProgress,
+                Math.Clamp(_badgeContent.Value, 0d, 1d),
+                Math.Clamp(_badgeAnchor.Value, 0d, 1d),
+                IsFullscreenBadgeGeometryActive ? _fullscreenBadgeAnchorWidth : 0d);
+        }
+    }
 
     public void SetPreferredSize(
         double compactWidth,
@@ -65,16 +98,33 @@ public sealed class WindowTransitionMotion
         _expandedWidth = expandedWidth;
         _expandedHeight = expandedHeight;
 
-        var expanded = TargetState is NotchState.Expanded or NotchState.Pinned;
-        SetTarget(_width, expanded ? _expandedWidth : _compactWidth, animate);
+        var expanded = !_fullscreenBadgeTarget && TargetState is NotchState.Expanded or NotchState.Pinned;
+        SetTarget(_width, expanded ? _expandedWidth : GetCompactWidthTarget(), animate);
         SetTarget(_height, expanded ? _expandedHeight : WindowController.CompactHeight, animate);
+    }
+
+    public void SetFullscreenBadge(bool enabled, bool animate)
+    {
+        if (enabled && !_fullscreenBadgeTarget && _fullscreenBadge.IsSettled && _fullscreenBadge.Value <= 0.001)
+        {
+            _fullscreenBadgeAnchorWidth = _compactWidth;
+        }
+
+        _fullscreenBadgeTarget = enabled;
+        Retarget(TargetState, animate);
+    }
+
+    public void SetBadgeContentVisible(bool visible, bool animate)
+    {
+        SetTarget(_badgeContent, visible ? 1d : 0d, animate);
     }
 
     public void Retarget(NotchState state, bool animate)
     {
-        TargetState = state;
-        var expanded = state is NotchState.Expanded or NotchState.Pinned;
-        var hidden = state == NotchState.Hidden;
+        TargetState = _fullscreenBadgeTarget ? NotchState.Compact : state;
+        state = TargetState;
+        var expanded = !_fullscreenBadgeTarget && state is NotchState.Expanded or NotchState.Pinned;
+        var hidden = !_fullscreenBadgeTarget && state == NotchState.Hidden;
 
         var geometryResponse = hidden ? 0.30 : 0.34;
         _width.Response = geometryResponse;
@@ -82,10 +132,12 @@ public sealed class WindowTransitionMotion
         _expansion.Response = geometryResponse;
         _top.Response = hidden ? 0.30 : 0.28;
 
-        SetTarget(_width, expanded ? _expandedWidth : _compactWidth, animate);
+        SetTarget(_width, expanded ? _expandedWidth : GetCompactWidthTarget(), animate);
         SetTarget(_height, expanded ? _expandedHeight : WindowController.CompactHeight, animate);
         SetTarget(_top, hidden ? HiddenTopOffset : 0d, animate);
         SetTarget(_expansion, expanded ? 1d : 0d, animate);
+        SetTarget(_fullscreenBadge, _fullscreenBadgeTarget ? 1d : 0d, animate);
+        SetTarget(_badgeAnchor, _fullscreenBadgeTarget ? 1d : 0d, animate);
     }
 
     public bool Step(TimeSpan elapsed)
@@ -94,7 +146,25 @@ public sealed class WindowTransitionMotion
         changed |= _height.Step(elapsed);
         changed |= _top.Step(elapsed);
         changed |= _expansion.Step(elapsed);
+        changed |= _fullscreenBadge.Step(elapsed);
+        changed |= _badgeContent.Step(elapsed);
+        changed |= _badgeAnchor.Step(elapsed);
         return changed;
+    }
+
+    private bool IsFullscreenBadgeGeometryActive =>
+        _fullscreenBadgeTarget ||
+        !_fullscreenBadge.IsSettled ||
+        _fullscreenBadge.Value > 0.001 ||
+        !_badgeAnchor.IsSettled ||
+        _badgeAnchor.Value > 0.001;
+
+    private double GetCompactWidthTarget()
+    {
+        // Leave room for the right badge while retaining the fixed 560 DIP
+        // envelope and the centered left edge of the compact content.
+        var maxBadgeCompactWidth = WindowController.EnvelopeWidth - (WindowController.FullscreenBadgeWidth * 2d);
+        return _fullscreenBadgeTarget ? Math.Min(_compactWidth, maxBadgeCompactWidth) : _compactWidth;
     }
 
     private static void SetTarget(SpringMotion motion, double target, bool animate)
@@ -116,4 +186,8 @@ public readonly record struct WindowMotionFrame(
     double TopOffset,
     double ExpansionProgress,
     NotchState TargetState,
-    bool IsSettled);
+    bool IsSettled,
+    double BadgeProgress = 0d,
+    double BadgeContentProgress = 1d,
+    double BadgeAnchorProgress = 0d,
+    double BadgeAnchorWidth = 0d);

@@ -264,6 +264,119 @@ public sealed class WindowTransitionMotionTests
     }
 
     [Fact]
+    public void FullscreenBadge_ReservesEnvelopeAndKeepsCompactLeftAnchor()
+    {
+        var motion = new WindowTransitionMotion();
+        motion.SetPreferredSize(520, 520, 220, animate: false);
+        motion.Retarget(NotchState.Compact, animate: false);
+        motion.SetFullscreenBadge(enabled: true, animate: false);
+
+        var frame = motion.Current;
+        var geometry = WindowEnvelopeGeometry.Calculate(
+            new Rectangle(0, 0, 1920, 1080),
+            dpi: 96,
+            frame,
+            isSuppressed: false);
+
+        Assert.Equal(1, frame.BadgeProgress);
+        Assert.Equal(1, frame.BadgeAnchorProgress);
+        Assert.Equal(520, frame.BadgeAnchorWidth);
+        Assert.Equal(528, frame.Width);
+        Assert.Equal(496, frame.Width - (WindowController.FullscreenBadgeWidth * frame.BadgeProgress));
+        Assert.Equal(20, geometry.Island.X);
+        Assert.Equal(528, geometry.Island.Width);
+        Assert.True(geometry.Island.X + geometry.Island.Width <= WindowController.EnvelopeWidth);
+    }
+
+    [Theory]
+    [InlineData(120u, 336d)]
+    [InlineData(144u, 280d)]
+    public void FullscreenBadgeLayout_ClampsRightBadgeInsideNarrowHighDpiIsland(uint dpi, double expectedVisibleWidth)
+    {
+        var motion = new WindowTransitionMotion();
+        motion.SetPreferredSize(520, 520, 220, animate: false);
+        motion.Retarget(NotchState.Compact, animate: false);
+        motion.SetFullscreenBadge(enabled: true, animate: false);
+        var frame = motion.Current;
+        var geometry = WindowEnvelopeGeometry.Calculate(
+            new Rectangle(1920, -40, 420, 900),
+            dpi,
+            frame,
+            isSuppressed: false);
+        var visibleWidth = geometry.Island.Width * (96d / dpi);
+
+        var layout = FullscreenBadgeLayout.Calculate(visibleWidth, frame);
+
+        Assert.Equal(expectedVisibleWidth, visibleWidth, 6);
+        Assert.Equal(WindowController.FullscreenBadgeWidth, layout.BadgeWidth, 6);
+        Assert.Equal(expectedVisibleWidth - WindowController.FullscreenBadgeWidth, layout.CompactBodyWidth, 6);
+        Assert.True(layout.CompactBodyWidth + layout.BadgeWidth <= visibleWidth + 0.001);
+    }
+
+    [Fact]
+    public void FullscreenBadge_ReversesAnchorAndRestoresLogicalExpandedState()
+    {
+        var motion = new WindowTransitionMotion();
+        motion.SetPreferredSize(520, 500, 220, animate: false);
+        motion.Retarget(NotchState.Compact, animate: false);
+        motion.SetFullscreenBadge(enabled: true, animate: true);
+        Advance(motion, 12, TimeSpan.FromSeconds(1d / 60d));
+        var beforeExit = motion.Current;
+
+        motion.SetFullscreenBadge(enabled: false, animate: true);
+        motion.Retarget(NotchState.Expanded, animate: true);
+        var retargeted = motion.Current;
+
+        Assert.Equal(beforeExit.Width, retargeted.Width);
+        Assert.Equal(beforeExit.BadgeProgress, retargeted.BadgeProgress);
+        Assert.Equal(beforeExit.BadgeAnchorProgress, retargeted.BadgeAnchorProgress);
+        Settle(motion);
+
+        Assert.Equal(NotchState.Expanded, motion.Current.TargetState);
+        Assert.Equal(500, motion.Current.Width, 6);
+        Assert.Equal(0, motion.Current.BadgeProgress, 6);
+        Assert.Equal(0, motion.Current.BadgeAnchorProgress, 6);
+        Assert.Equal(0, motion.Current.BadgeAnchorWidth, 6);
+    }
+
+    [Fact]
+    public void FullscreenBadge_StaysWithinEnvelopeWhileExpandedContentCollapses()
+    {
+        var motion = new WindowTransitionMotion();
+        motion.SetPreferredSize(520, 500, 220, animate: false);
+        motion.Retarget(NotchState.Expanded, animate: false);
+
+        motion.SetFullscreenBadge(enabled: true, animate: true);
+
+        Assert.Equal(1, motion.Current.ExpansionProgress);
+        Assert.Equal(0, motion.Current.BadgeProgress);
+        Assert.Equal(500, motion.Current.Width);
+
+        Advance(motion, 18, TimeSpan.FromSeconds(1d / 60d));
+        Assert.InRange(motion.Current.BadgeProgress, 0.01, 0.99);
+        Assert.True(motion.Current.Width <= WindowController.EnvelopeWidth);
+
+        Settle(motion);
+        Assert.Equal(528, motion.Current.Width, 6);
+        Assert.Equal(0, motion.Current.ExpansionProgress, 6);
+    }
+
+    [Fact]
+    public void FullscreenBadgeContent_FadesOutBeforeReplacementAndCanReverse()
+    {
+        var motion = new WindowTransitionMotion();
+        motion.SetBadgeContentVisible(visible: false, animate: true);
+        Advance(motion, 8, TimeSpan.FromSeconds(1d / 60d));
+        var beforeReverse = motion.Current.BadgeContentProgress;
+
+        motion.SetBadgeContentVisible(visible: true, animate: true);
+
+        Assert.Equal(beforeReverse, motion.Current.BadgeContentProgress);
+        Settle(motion);
+        Assert.Equal(1, motion.Current.BadgeContentProgress, 6);
+    }
+
+    [Fact]
     public void EqualElapsedTime_IsRefreshRateIndependent()
     {
         var sixtyHertz = CreateVisibleCompactMotion();
