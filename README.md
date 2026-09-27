@@ -65,9 +65,9 @@ The file is created with defaults on first launch. Supported settings are:
 
 `fullscreenMode` accepts:
 
-- `badge` (default): while a fullscreen app is detected, show a compact status/clock badge with the foreground app's icon on the right when an icon is available.
-- `hide`: fully hide NotchBar while a fullscreen app is detected.
-- `normal`: keep the island's regular behavior over fullscreen, without the app badge or fullscreen hiding.
+- `badge` (default): while an eligible foreground app is detected, show a compact status/clock badge with that app's icon on the right when an icon is available. Eligible windows include true fullscreen windows and OS-maximized windows that cover the target display's work area.
+- `hide`: fully hide NotchBar while an eligible fullscreen or OS-maximized app is detected.
+- `normal`: keep the island's regular behavior over fullscreen or maximized apps, without the app badge or fullscreen hiding.
 
 If `fullscreenMode` is absent, the legacy `hideInFullscreen` setting is migrated: `false` maps to `normal`, and `true` maps to `badge`. If neither setting is present, the default is `badge`. An invalid explicit `fullscreenMode` also falls back to `badge`; a valid explicit value takes precedence over the legacy setting. Set `fullscreenMode` to `hide` to retain full hiding during fullscreen.
 
@@ -84,7 +84,7 @@ NotchBar declares Per-Monitor V2 DPI awareness. WPF continues to lay out the con
 
 When moving between displays, the window is re-centered using the target display's real bounds. The current implementation supports primary-display placement and active-window following; selecting an arbitrary display by device name is intentionally deferred.
 
-Fullscreen behavior follows `fullscreenMode` on the relevant display. In `primary` mode, only fullscreen windows on the primary display count; in `activeWindow` mode, the foreground display is used. `badge` shows the compact status/clock and, when available, the fullscreen app icon at the right with a smooth transition. The badge is passive and click-through. `hide` fully hides the island until fullscreen ends, while `normal` keeps the regular island behavior. Fullscreen context is refreshed from Windows foreground and window-location events, with a slower polling fallback. Detection uses window bounds rather than app-specific game or media integration, and icon lookup is best-effort; some windows may not provide a usable icon. A true exclusive-fullscreen game may not display a desktop overlay at all.
+Fullscreen behavior follows `fullscreenMode` on the relevant display. In `primary` mode, only eligible foreground windows on the primary display count; in `activeWindow` mode, the foreground display is used. Detection includes true fullscreen windows and visible OS-maximized windows covering the display's work area, so a maximized Codex window can trigger the badge even when the taskbar remains visible. `badge` shows the compact status/clock and, when available, the foreground app icon at the right with a smooth transition. The badge is passive and click-through. `hide` fully hides the island while an eligible fullscreen or maximized app is active, while `normal` keeps the regular island behavior. Context is refreshed from Windows foreground and window-location events, with a slower polling fallback. Detection uses window bounds rather than app-specific game or media integration, and icon lookup is best-effort; some windows may not provide a usable icon. A true exclusive-fullscreen game may not display a desktop overlay at all.
 
 ## Tray, startup, and single-instance behavior
 

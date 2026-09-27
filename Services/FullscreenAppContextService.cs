@@ -319,6 +319,7 @@ public sealed class FullscreenAppContextService : IDisposable
         _ = GetWindowThreadProcessId(window, out var processId);
         var isVisible = IsWindowVisible(window);
         var isMinimized = IsIconic(window);
+        var isMaximized = IsZoomed(window);
         var isDesktop = IsDesktopShellWindow(window);
         var monitor = MonitorFromWindow(window, MonitorDefaultToNearest);
         if (monitor == IntPtr.Zero || !GetWindowRect(window, out var windowBounds))
@@ -341,8 +342,15 @@ public sealed class FullscreenAppContextService : IDisposable
             (uint)Environment.ProcessId,
             primaryMonitor,
             _monitorMode);
-        if (!eligible || !FullscreenWindowClassifier.CoversBounds(
-                ToRectangle(windowBounds), ToRectangle(monitorInfo.Monitor), BoundsTolerance))
+        var windowRectangle = ToRectangle(windowBounds);
+        var monitorRectangle = ToRectangle(monitorInfo.Monitor);
+        var workAreaRectangle = ToRectangle(monitorInfo.Work);
+        if (!eligible || !FullscreenWindowClassifier.IsFullscreenOrMaximized(
+                windowRectangle,
+                monitorRectangle,
+                workAreaRectangle,
+                isMaximized,
+                BoundsTolerance))
         {
             return default;
         }
@@ -839,6 +847,10 @@ public sealed class FullscreenAppContextService : IDisposable
 
     [DllImport("user32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool IsZoomed(IntPtr window);
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
     private static extern bool IsWindow(IntPtr window);
 
     [DllImport("user32.dll")]
@@ -967,6 +979,22 @@ internal static class FullscreenWindowClassifier
                window.Top <= monitor.Top + tolerance &&
                window.Right >= monitor.Right - tolerance &&
                window.Bottom >= monitor.Bottom - tolerance;
+    }
+
+    internal static bool IsFullscreenOrMaximized(
+        Rectangle window,
+        Rectangle monitor,
+        Rectangle workArea,
+        bool isMaximized,
+        int tolerance)
+    {
+        if (CoversBounds(window, monitor, tolerance))
+        {
+            return true;
+        }
+
+        return isMaximized && workArea.Width > 0 && workArea.Height > 0 &&
+               CoversBounds(window, workArea, tolerance);
     }
 
     internal static IntPtr SelectFirstAvailableIcon(params Func<IntPtr>[] candidates)

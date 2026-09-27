@@ -32,6 +32,49 @@ public sealed class FullscreenAppContextServiceTests
             new Rectangle(x, y, width, height), monitor, tolerance: 2));
     }
 
+    [Fact]
+    public void FullscreenClassifier_AcceptsBorderlessMonitorBoundsWithoutMaximizedState()
+    {
+        var monitor = new Rectangle(0, 0, 1920, 1080);
+        var workArea = new Rectangle(0, 0, 1920, 1040);
+
+        Assert.True(FullscreenWindowClassifier.IsFullscreenOrMaximized(
+            monitor, monitor, workArea, isMaximized: false, tolerance: 2));
+    }
+
+    [Fact]
+    public void FullscreenClassifier_AcceptsOsMaximizedWindowCoveringWorkArea()
+    {
+        var monitor = new Rectangle(0, 0, 1920, 1080);
+        var workArea = new Rectangle(0, 0, 1920, 1040);
+        var codexMaximizedBounds = new Rectangle(-8, -8, 1936, 1056);
+
+        Assert.True(FullscreenWindowClassifier.IsFullscreenOrMaximized(
+            codexMaximizedBounds, monitor, workArea, isMaximized: true, tolerance: 2));
+    }
+
+    [Fact]
+    public void FullscreenClassifier_RejectsLargeFloatingWindowThatIsNotMaximized()
+    {
+        var monitor = new Rectangle(0, 0, 1920, 1080);
+        var workArea = new Rectangle(0, 0, 1920, 1040);
+        var largeFloatingBounds = new Rectangle(-8, -8, 1936, 1056);
+
+        Assert.False(FullscreenWindowClassifier.IsFullscreenOrMaximized(
+            largeFloatingBounds, monitor, workArea, isMaximized: false, tolerance: 2));
+    }
+
+    [Fact]
+    public void FullscreenClassifier_RejectsMaximizedWindowThatDoesNotCoverWorkArea()
+    {
+        var monitor = new Rectangle(0, 0, 1920, 1080);
+        var workArea = new Rectangle(0, 0, 1920, 1040);
+        var restoredBounds = new Rectangle(40, 40, 1840, 960);
+
+        Assert.False(FullscreenWindowClassifier.IsFullscreenOrMaximized(
+            restoredBounds, monitor, workArea, isMaximized: true, tolerance: 2));
+    }
+
     [Theory]
     [InlineData(true, false, false, 10, 9, true, MonitorPlacementMode.Primary, true)]
     [InlineData(true, false, false, 11, 10, true, MonitorPlacementMode.Primary, true)]
