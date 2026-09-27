@@ -1,3 +1,5 @@
+using System.ComponentModel;
+using System.Diagnostics;
 using System.Drawing;
 using System.Runtime.InteropServices;
 using System.Windows;
@@ -47,11 +49,16 @@ public sealed class WindowController : IDisposable
     private bool _needsDpiHandshake = true;
     private bool _isSuppressed;
     private bool _fullscreenBadgeActive;
+    private bool _fullscreenBadgeContentVisible = true;
     private bool _fullscreenPassthrough;
     private NotchState _requestedState = NotchState.Hidden;
     private IntPtr _companionHandle;
     private Action<WindowEnvelopeGeometry, uint>? _companionGeometryChanged;
     private Action? _companionCommitFailed;
+    private FullscreenPinHitTarget? _fullscreenPinHitTarget;
+    private Rectangle? _fullscreenPinHitBounds;
+    private FullscreenPinHitTarget? _fullscreenWakeHitTarget;
+    private Rectangle? _fullscreenWakeHitBounds;
     private bool _companionActive;
     private WindowPixelGeometry? _lastCommittedGeometry;
     private bool _lastCommitIncludedCompanion;
@@ -78,6 +85,16 @@ public sealed class WindowController : IDisposable
     }
 
     public event EventHandler<WindowMotionFrameChangedEventArgs>? MotionFrameChanged;
+
+    public event EventHandler? FullscreenPinClicked;
+
+    public event EventHandler? FullscreenPinMouseEntered;
+
+    public event EventHandler? FullscreenPinMouseLeft;
+
+    public event EventHandler? FullscreenWakeMouseEntered;
+
+    public event EventHandler? FullscreenWakeMouseLeft;
 
     public WindowMotionFrame CurrentFrame => _motion.Current;
 
@@ -143,6 +160,27 @@ public sealed class WindowController : IDisposable
         _source = HwndSource.FromHwnd(_handle);
         _source?.AddHook(WindowMessageHook);
         ApplyFullscreenPassthroughStyle();
+        try
+        {
+            _fullscreenPinHitTarget = new FullscreenPinHitTarget(_handle);
+            _fullscreenPinHitTarget.Clicked += FullscreenPinHitTarget_OnClicked;
+            _fullscreenPinHitTarget.MouseEntered += FullscreenPinHitTarget_OnMouseEntered;
+            _fullscreenPinHitTarget.MouseLeft += FullscreenPinHitTarget_OnMouseLeft;
+        }
+        catch (Win32Exception exception)
+        {
+            Debug.WriteLine($"NotchBar fullscreen pin hit target is unavailable: {exception.Message}");
+        }
+        try
+        {
+            _fullscreenWakeHitTarget = new FullscreenPinHitTarget(_handle, useHandCursor: false);
+            _fullscreenWakeHitTarget.MouseEntered += FullscreenWakeHitTarget_OnMouseEntered;
+            _fullscreenWakeHitTarget.MouseLeft += FullscreenWakeHitTarget_OnMouseLeft;
+        }
+        catch (Win32Exception exception)
+        {
+            Debug.WriteLine($"NotchBar fullscreen wake hit target is unavailable: {exception.Message}");
+        }
         _needsDpiHandshake = true;
         InvalidateCommittedGeometry();
         CommitFrame(_motion.Current);
@@ -189,6 +227,8 @@ public sealed class WindowController : IDisposable
         }
 
         _isSuppressed = suppressed;
+        RefreshFullscreenPinHitTarget();
+        RefreshFullscreenWakeHitTarget();
     }
 
     public void SetFullscreenBadgeActive(bool active)
@@ -205,6 +245,8 @@ public sealed class WindowController : IDisposable
         _motion.SetFullscreenBadge(active, animate);
         _motion.Retarget(_requestedState, animate);
         ContinueOrCommit(animate);
+        RefreshFullscreenPinHitTarget();
+        RefreshFullscreenWakeHitTarget();
     }
 
     public void SetFullscreenPassthrough(bool enabled)
@@ -216,6 +258,42 @@ public sealed class WindowController : IDisposable
 
         _fullscreenPassthrough = enabled;
         ApplyFullscreenPassthroughStyle();
+        RefreshFullscreenPinHitTarget();
+        RefreshFullscreenWakeHitTarget();
+    }
+
+    public void SetFullscreenPinHitTarget(Rectangle? screenBounds)
+    {
+        if (_disposed)
+        {
+            return;
+        }
+
+        var normalizedBounds = screenBounds is { Width: > 0, Height: > 0 } ? screenBounds : null;
+        if (_fullscreenPinHitBounds == normalizedBounds)
+        {
+            return;
+        }
+
+        _fullscreenPinHitBounds = normalizedBounds;
+        RefreshFullscreenPinHitTarget();
+    }
+
+    public void SetFullscreenWakeHitTarget(Rectangle? screenBounds)
+    {
+        if (_disposed)
+        {
+            return;
+        }
+
+        var normalizedBounds = screenBounds is { Width: > 0, Height: > 0 } ? screenBounds : null;
+        if (_fullscreenWakeHitBounds == normalizedBounds)
+        {
+            return;
+        }
+
+        _fullscreenWakeHitBounds = normalizedBounds;
+        RefreshFullscreenWakeHitTarget();
     }
 
     /// <summary>
@@ -226,7 +304,7 @@ public sealed class WindowController : IDisposable
     /// </summary>
     public bool ReassertFullscreenZOrder()
     {
-        if (_disposed || _handle == IntPtr.Zero || _isSuppressed || !_fullscreenBadgeActive)
+        if (_disposed || _handle == IntPtr.Zero || _isSuppressed || !_fullscreenPassthrough)
         {
             return false;
         }
@@ -243,17 +321,20 @@ public sealed class WindowController : IDisposable
         // Keep the main HWND above the companion even if the latter was
         // destroyed during the brief transition between context snapshots.
         var mainRaised = SetWindowPos(_handle, HwndTopmost, 0, 0, 0, 0, flags);
-        return companionRaised && mainRaised;
+        var pinRaised = mainRaised && (_fullscreenPinHitTarget?.RaiseAboveOwner() ?? true);
+        var wakeRaised = mainRaised && (_fullscreenWakeHitTarget?.RaiseAboveOwner() ?? true);
+        return companionRaised && mainRaised && pinRaised && wakeRaised;
     }
 
-    public void SetFullscreenBadgeContentVisible(bool visible)
+    public void SetFullscreenBadgeContentVisible(bool visible, bool animate = true)
     {
-        if (_disposed)
+        if (_disposed || _fullscreenBadgeContentVisible == visible)
         {
             return;
         }
 
-        var animate = SystemParameters.ClientAreaAnimation &&
+        _fullscreenBadgeContentVisible = visible;
+        animate = animate && SystemParameters.ClientAreaAnimation &&
             !_isSuppressed &&
             _handle != IntPtr.Zero;
         _motion.SetBadgeContentVisible(visible, animate);
@@ -575,6 +656,61 @@ public sealed class WindowController : IDisposable
             SwpNoMove | SwpNoSize | SwpNoZOrder | SwpNoActivate | SwpFrameChanged);
     }
 
+    private void RefreshFullscreenPinHitTarget()
+    {
+        if (_fullscreenPinHitTarget is null)
+        {
+            return;
+        }
+
+        if (_fullscreenBadgeActive &&
+            _fullscreenPassthrough &&
+            !_isSuppressed &&
+            _fullscreenPinHitBounds is { Width: > 0, Height: > 0 } bounds)
+        {
+            _ = _fullscreenPinHitTarget.ShowAt(bounds);
+        }
+        else
+        {
+            _fullscreenPinHitTarget.Hide();
+        }
+    }
+
+    private void RefreshFullscreenWakeHitTarget()
+    {
+        if (_fullscreenWakeHitTarget is null)
+        {
+            return;
+        }
+
+        if (_fullscreenPassthrough &&
+            !_isSuppressed &&
+            !_fullscreenBadgeActive &&
+            _fullscreenWakeHitBounds is { Width: > 0, Height: > 0 } bounds)
+        {
+            _ = _fullscreenWakeHitTarget.ShowAt(bounds);
+        }
+        else
+        {
+            _fullscreenWakeHitTarget.Hide();
+        }
+    }
+
+    private void FullscreenPinHitTarget_OnClicked(object? sender, EventArgs e) =>
+        FullscreenPinClicked?.Invoke(this, EventArgs.Empty);
+
+    private void FullscreenPinHitTarget_OnMouseEntered(object? sender, EventArgs e) =>
+        FullscreenPinMouseEntered?.Invoke(this, EventArgs.Empty);
+
+    private void FullscreenPinHitTarget_OnMouseLeft(object? sender, EventArgs e) =>
+        FullscreenPinMouseLeft?.Invoke(this, EventArgs.Empty);
+
+    private void FullscreenWakeHitTarget_OnMouseEntered(object? sender, EventArgs e) =>
+        FullscreenWakeMouseEntered?.Invoke(this, EventArgs.Empty);
+
+    private void FullscreenWakeHitTarget_OnMouseLeft(object? sender, EventArgs e) =>
+        FullscreenWakeMouseLeft?.Invoke(this, EventArgs.Empty);
+
     public void Dispose()
     {
         if (_disposed)
@@ -586,6 +722,21 @@ public sealed class WindowController : IDisposable
         StopRendering();
         _source?.RemoveHook(WindowMessageHook);
         _source = null;
+        if (_fullscreenPinHitTarget is not null)
+        {
+            _fullscreenPinHitTarget.Clicked -= FullscreenPinHitTarget_OnClicked;
+            _fullscreenPinHitTarget.MouseEntered -= FullscreenPinHitTarget_OnMouseEntered;
+            _fullscreenPinHitTarget.MouseLeft -= FullscreenPinHitTarget_OnMouseLeft;
+            _fullscreenPinHitTarget.Dispose();
+            _fullscreenPinHitTarget = null;
+        }
+        if (_fullscreenWakeHitTarget is not null)
+        {
+            _fullscreenWakeHitTarget.MouseEntered -= FullscreenWakeHitTarget_OnMouseEntered;
+            _fullscreenWakeHitTarget.MouseLeft -= FullscreenWakeHitTarget_OnMouseLeft;
+            _fullscreenWakeHitTarget.Dispose();
+            _fullscreenWakeHitTarget = null;
+        }
         _window.SizeChanged -= Window_OnSizeChanged;
         UnregisterCompanion();
     }

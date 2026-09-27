@@ -1,4 +1,5 @@
 using System.Drawing;
+using System.IO;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Text;
@@ -38,12 +39,10 @@ public sealed class FullscreenAppContextService : IDisposable
     private const int WmGetIcon = 0x007F;
     private const int IconSmall = 0;
     private const int IconBig = 1;
-    private const int IconSmall2 = 2;
     private const int GclpHicon = -14;
     private const int GclpHiconSmall = -34;
     private const int SendMessageTimeoutMilliseconds = 90;
     private const int MaximumCachedIcons = 96;
-
     private readonly MonitorPlacementMode _monitorMode;
     private readonly Dispatcher _dispatcher;
     private readonly DispatcherTimer _fallbackTimer;
@@ -51,6 +50,11 @@ public sealed class FullscreenAppContextService : IDisposable
     private readonly object _iconCacheLock = new();
     private readonly Dictionary<IconCacheKey, LinkedListNode<IconCacheItem>> _iconCache = new();
     private readonly LinkedList<IconCacheItem> _iconCacheLru = new();
+    private readonly FullscreenIconDiskCache _diskIconCache = new(Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+        "NotchBar",
+        "IconCache",
+        "v2"));
     private readonly Thread _hookThread;
     private FullscreenAppContext _current = FullscreenAppContext.Empty;
     private uint _hookThreadId;
@@ -477,32 +481,123 @@ public sealed class FullscreenAppContextService : IDisposable
             return cached;
         }
 
-        var icon = ExtractWindowIcon(window, dpi);
-        if (icon is null && !string.IsNullOrWhiteSpace(process.Path))
+        var windowClass = TryGetWindowClassName(window);
+        var diskCacheKey = CreatePersistentIconCacheKey(process.Path, dpi, windowClass);
+        if (diskCacheKey is not null && _diskIconCache.TryRead(diskCacheKey, out var cachedPng))
         {
-            icon = ExtractExecutableIcon(process.Path!, dpi);
+            var cachedBitmap = DecodeCachedIcon(cachedPng, dpi);
+            if (cachedBitmap is not null)
+            {
+                AddCachedIcon(key, cachedBitmap);
+                return cachedBitmap;
+            }
+
+            _diskIconCache.Remove(diskCacheKey);
         }
 
-        if (icon is not null)
+        var icon = ExtractWindowIcon(window, dpi, process.Path);
+
+        if (icon is not null && IsUsableIcon(icon))
         {
             AddCachedIcon(key, icon);
+            if (diskCacheKey is not null)
+            {
+                var encoded = EncodeIcon(icon);
+                if (encoded is not null)
+                {
+                    _ = _diskIconCache.TryWrite(diskCacheKey, encoded);
+                }
+            }
+
+            return icon;
         }
 
-        return icon;
+        return null;
     }
 
-    private static ImageSource? ExtractWindowIcon(IntPtr window, uint dpi)
+    private static BitmapSource? ExtractWindowIcon(IntPtr window, uint dpi, string? executablePath)
     {
-        var selected = FullscreenWindowClassifier.SelectFirstAvailableIcon(
-            () => SendWindowMessageForIcon(window, IconSmall2),
-            () => SendWindowMessageForIcon(window, IconSmall),
-            () => SendWindowMessageForIcon(window, IconBig),
-            () => GetClassIcon(window, GclpHiconSmall),
-            () => GetClassIcon(window, GclpHicon));
-        return selected == IntPtr.Zero ? null : CreateFrozenBitmap(selected, dpi);
+        // ICON_SMALL2 can return a system-generated window glyph when the app has no icon.
+        // Skip it so the executable resource fallback gets a chance to provide the real brand icon.
+        // Explicit per-window icons win; the executable resource precedes class icons because
+        // a class icon can be a generic framework default shared by unrelated applications.
+        var explicitWindowIcons = new Func<BitmapSource?>[]
+        {
+            () => TryCreateWindowIcon(window, IconSmall, dpi),
+            () => TryCreateWindowIcon(window, IconBig, dpi)
+        };
+        var classIcons = new Func<BitmapSource?>[]
+        {
+            () => TryCreateClassIcon(window, GclpHiconSmall, dpi),
+            () => TryCreateClassIcon(window, GclpHicon, dpi)
+        };
+
+        return FullscreenWindowClassifier.SelectPreferredIcon(
+            explicitWindowIcons,
+            string.IsNullOrWhiteSpace(executablePath) ? null : () => ExtractExecutableIcon(executablePath, dpi),
+            classIcons,
+            bitmap => IsUsableIcon(bitmap) && !IsGenericSystemIcon(bitmap, dpi));
     }
 
-    private static IntPtr SendWindowMessageForIcon(IntPtr window, int iconType)
+    private static BitmapSource? TryCreateWindowIcon(IntPtr window, int iconType, uint dpi)
+    {
+        var icon = SendWindowMessageForIcon(window, iconType, dpi);
+        return icon == IntPtr.Zero ? null : CreateFrozenBitmap(icon, dpi);
+    }
+
+    private static BitmapSource? TryCreateClassIcon(IntPtr window, int index, uint dpi)
+    {
+        var icon = GetClassIcon(window, index);
+        return icon == IntPtr.Zero ? null : CreateFrozenBitmap(icon, dpi);
+    }
+
+    private static bool IsGenericSystemIcon(BitmapSource bitmap, uint dpi)
+    {
+        const int IdiApplication = 32512;
+        var systemIcon = LoadIcon(IntPtr.Zero, new IntPtr(IdiApplication));
+        if (systemIcon == IntPtr.Zero)
+        {
+            return false;
+        }
+
+        var generic = CreateFrozenBitmap(systemIcon, dpi);
+        return generic is not null && ArePixelEquivalent(bitmap, generic);
+    }
+
+    private static bool ArePixelEquivalent(BitmapSource left, BitmapSource right)
+    {
+        const int comparisonSize = 16;
+        try
+        {
+            var leftPixels = GetComparisonPixels(left, comparisonSize);
+            var rightPixels = GetComparisonPixels(right, comparisonSize);
+            return leftPixels.AsSpan().SequenceEqual(rightPixels);
+        }
+        catch (Exception)
+        {
+            return false;
+        }
+    }
+
+    private static byte[] GetComparisonPixels(BitmapSource source, int size)
+    {
+        BitmapSource scaled = source;
+        if (source.PixelWidth != size || source.PixelHeight != size)
+        {
+            scaled = new TransformedBitmap(source, new ScaleTransform(
+                (double)size / source.PixelWidth,
+                (double)size / source.PixelHeight));
+            scaled.Freeze();
+        }
+
+        var converted = new FormatConvertedBitmap(scaled, PixelFormats.Bgra32, null, 0);
+        converted.Freeze();
+        var pixels = new byte[size * size * 4];
+        converted.CopyPixels(pixels, size * 4, 0);
+        return pixels;
+    }
+
+    private static IntPtr SendWindowMessageForIcon(IntPtr window, int iconType, uint dpi)
     {
         try
         {
@@ -510,7 +605,7 @@ public sealed class FullscreenAppContextService : IDisposable
                     window,
                     WmGetIcon,
                     (UIntPtr)(uint)iconType,
-                    IntPtr.Zero,
+                    new IntPtr(unchecked((int)dpi)),
                     SmtoBlock | SmtoAbortIfHung,
                     SendMessageTimeoutMilliseconds,
                     out var result) != IntPtr.Zero)
@@ -538,7 +633,7 @@ public sealed class FullscreenAppContextService : IDisposable
         }
     }
 
-    private static ImageSource? ExtractExecutableIcon(string path, uint dpi)
+    private static BitmapSource? ExtractExecutableIcon(string path, uint dpi)
     {
         var info = new ShellFileInfo();
         _ = SHGetFileInfo(path, 0, ref info, (uint)Marshal.SizeOf<ShellFileInfo>(), ShgfiIcon | ShgfiLargeIcon);
@@ -569,27 +664,28 @@ public sealed class FullscreenAppContextService : IDisposable
                 bitmap.Freeze();
             }
 
-            if (bitmap.IsFrozen && Math.Abs(bitmap.DpiX - dpi) < 0.5 && Math.Abs(bitmap.DpiY - dpi) < 0.5)
+            var bounded = LimitIconSize(bitmap);
+            if (bounded.IsFrozen && Math.Abs(bounded.DpiX - dpi) < 0.5 && Math.Abs(bounded.DpiY - dpi) < 0.5)
             {
-                return bitmap;
+                return bounded;
             }
 
-            var stride = (bitmap.PixelWidth * bitmap.Format.BitsPerPixel + 7) / 8;
-            var pixels = new byte[stride * bitmap.PixelHeight];
-            bitmap.CopyPixels(pixels, stride, 0);
+            var stride = (bounded.PixelWidth * bounded.Format.BitsPerPixel + 7) / 8;
+            var pixels = new byte[stride * bounded.PixelHeight];
+            bounded.CopyPixels(pixels, stride, 0);
             var normalized = BitmapSource.Create(
-                bitmap.PixelWidth,
-                bitmap.PixelHeight,
+                bounded.PixelWidth,
+                bounded.PixelHeight,
                 dpi,
                 dpi,
-                bitmap.Format,
-                bitmap.Palette,
+                bounded.Format,
+                bounded.Palette,
                 pixels,
                 stride);
             normalized.Freeze();
             return normalized;
         }
-        catch (Exception) when (icon != IntPtr.Zero)
+        catch (Exception)
         {
             return null;
         }
@@ -599,6 +695,133 @@ public sealed class FullscreenAppContextService : IDisposable
             {
                 _ = DestroyIcon(ownedIcon);
             }
+        }
+    }
+
+    private static BitmapSource LimitIconSize(BitmapSource bitmap)
+    {
+        const int maximumPixels = 64;
+        var scale = Math.Min(1d, (double)maximumPixels / Math.Max(bitmap.PixelWidth, bitmap.PixelHeight));
+        if (scale >= 1d)
+        {
+            return bitmap;
+        }
+
+        var transformed = new TransformedBitmap(bitmap, new ScaleTransform(scale, scale));
+        transformed.Freeze();
+        return transformed;
+    }
+
+    private static bool IsUsableIcon(BitmapSource bitmap)
+    {
+        if (bitmap.PixelWidth <= 0 || bitmap.PixelHeight <= 0 || bitmap.PixelWidth > 256 || bitmap.PixelHeight > 256)
+        {
+            return false;
+        }
+
+        var converted = new FormatConvertedBitmap(bitmap, PixelFormats.Bgra32, null, 0);
+        converted.Freeze();
+        var pixels = new byte[converted.PixelWidth * converted.PixelHeight * 4];
+        converted.CopyPixels(pixels, converted.PixelWidth * 4, 0);
+        var visiblePixels = 0;
+        for (var offset = 3; offset < pixels.Length; offset += 4)
+        {
+            if (pixels[offset] > 8 && ++visiblePixels >= 4)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static byte[]? EncodeIcon(BitmapSource bitmap)
+    {
+        try
+        {
+            var encoder = new PngBitmapEncoder();
+            encoder.Frames.Add(BitmapFrame.Create(bitmap));
+            using var stream = new MemoryStream();
+            encoder.Save(stream);
+            return stream.Length <= FullscreenIconDiskCache.DefaultMaximumPngBytes ? stream.ToArray() : null;
+        }
+        catch (Exception)
+        {
+            return null;
+        }
+    }
+
+    private static BitmapSource? DecodeCachedIcon(byte[] png, uint dpi)
+    {
+        try
+        {
+            using var stream = new MemoryStream(png, writable: false);
+            var decoder = new PngBitmapDecoder(stream, BitmapCreateOptions.PreservePixelFormat, BitmapCacheOption.OnLoad);
+            var bitmap = decoder.Frames[0];
+            bitmap.Freeze();
+            var normalized = BitmapSource.Create(
+                bitmap.PixelWidth,
+                bitmap.PixelHeight,
+                dpi,
+                dpi,
+                bitmap.Format,
+                bitmap.Palette,
+                CopyBitmapPixels(bitmap),
+                GetBitmapStride(bitmap));
+            normalized.Freeze();
+            return IsUsableIcon(normalized) ? normalized : null;
+        }
+        catch (Exception)
+        {
+            return null;
+        }
+    }
+
+    private static byte[] CopyBitmapPixels(BitmapSource bitmap)
+    {
+        var stride = GetBitmapStride(bitmap);
+        var pixels = new byte[stride * bitmap.PixelHeight];
+        bitmap.CopyPixels(pixels, stride, 0);
+        return pixels;
+    }
+
+    private static int GetBitmapStride(BitmapSource bitmap) =>
+        (bitmap.PixelWidth * bitmap.Format.BitsPerPixel + 7) / 8;
+
+    internal static string? CreatePersistentIconCacheKey(string? executablePath, uint dpi, string? windowClass)
+    {
+        if (string.IsNullOrWhiteSpace(executablePath))
+        {
+            return null;
+        }
+
+        try
+        {
+            var fullPath = Path.GetFullPath(executablePath);
+            var executable = new FileInfo(fullPath);
+            if (!executable.Exists)
+            {
+                return null;
+            }
+
+            return $"{fullPath.ToUpperInvariant()}\n{executable.Length}\n{executable.LastWriteTimeUtc.Ticks}\n{dpi}\n{windowClass ?? string.Empty}";
+        }
+        catch (Exception)
+        {
+            return null;
+        }
+    }
+
+    private static string? TryGetWindowClassName(IntPtr window)
+    {
+        try
+        {
+            var className = new StringBuilder(256);
+            return GetClassName(window, className, className.Capacity) > 0 ? className.ToString() : null;
+        }
+        catch (Exception)
+        {
+            return null;
         }
     }
 
@@ -952,6 +1175,9 @@ public sealed class FullscreenAppContextService : IDisposable
 
     [DllImport("user32.dll")]
     private static extern IntPtr CopyIcon(IntPtr icon);
+
+    [DllImport("user32.dll", EntryPoint = "LoadIconW", CharSet = CharSet.Unicode)]
+    private static extern IntPtr LoadIcon(IntPtr instance, IntPtr iconName);
 }
 
 internal static class FullscreenWindowClassifier
@@ -1010,6 +1236,38 @@ internal static class FullscreenWindowClassifier
 
         return IntPtr.Zero;
     }
+
+    internal static T? SelectFirstUsableIcon<T>(IEnumerable<Func<T?>> candidates, Func<T, bool> isUsable)
+        where T : class
+    {
+        foreach (var candidate in candidates)
+        {
+            var icon = candidate();
+            if (icon is not null && isUsable(icon))
+            {
+                return icon;
+            }
+        }
+
+        return null;
+    }
+
+    internal static T? SelectPreferredIcon<T>(
+        IEnumerable<Func<T?>> explicitWindowIcons,
+        Func<T?>? executableIcon,
+        IEnumerable<Func<T?>> classIcons,
+        Func<T, bool> isUsable)
+        where T : class
+    {
+        var candidates = explicitWindowIcons.ToList();
+        if (executableIcon is not null)
+        {
+            candidates.Add(executableIcon);
+        }
+
+        candidates.AddRange(classIcons);
+        return SelectFirstUsableIcon(candidates, isUsable);
+    }
 }
 
 internal static class FullscreenIconRetryPolicy
@@ -1018,7 +1276,9 @@ internal static class FullscreenIconRetryPolicy
     [
         TimeSpan.FromMilliseconds(250),
         TimeSpan.FromMilliseconds(750),
-        TimeSpan.FromSeconds(2)
+        TimeSpan.FromSeconds(2),
+        TimeSpan.FromSeconds(4),
+        TimeSpan.FromSeconds(8)
     ];
 
     internal static TimeSpan? GetDelay(int retryCount) =>
