@@ -1,4 +1,5 @@
 using System.Drawing;
+using NotchBar.Core;
 using NotchBar.Services;
 using Xunit;
 
@@ -185,6 +186,51 @@ public sealed class FullscreenAppContextServiceTests
         Assert.Equal(TimeSpan.FromSeconds(8), FullscreenIconRetryPolicy.GetDelay(4));
         Assert.Null(FullscreenIconRetryPolicy.GetDelay(5));
         Assert.Null(FullscreenIconRetryPolicy.GetDelay(-1));
+    }
+
+    [Theory]
+    [InlineData(false, NotchState.Hidden, false)]
+    [InlineData(true, NotchState.Pinned, false)]
+    [InlineData(false, NotchState.Compact, true)]
+    [InlineData(false, NotchState.Expanded, true)]
+    public void IconFailurePolicy_SchedulesHideOnlyForUnpinnedVisibleState(
+        bool isPinned,
+        NotchState state,
+        bool expected)
+    {
+        Assert.Equal(expected, FullscreenIconFailurePolicy.ShouldScheduleHide(isPinned, state));
+    }
+
+    [Theory]
+    [InlineData(true, false, false, NotchState.Hidden, true)]
+    [InlineData(true, true, false, NotchState.Hidden, false)]
+    [InlineData(true, false, true, NotchState.Hidden, false)]
+    [InlineData(true, false, false, NotchState.Compact, false)]
+    [InlineData(false, false, false, NotchState.Hidden, false)]
+    public void IconFailurePolicy_WakesHiddenUnpinnedIslandOnlyAfterIconRecovery(
+        bool wasResolutionFailed,
+        bool isPinned,
+        bool isDismissed,
+        NotchState state,
+        bool expected)
+    {
+        Assert.Equal(expected, FullscreenIconFailurePolicy.ShouldWakeAfterRecovery(
+            wasResolutionFailed,
+            isPinned,
+            isDismissed,
+            state));
+    }
+
+    [Fact]
+    public void FullscreenContextChangedArgs_ExposeTerminalIconFailureState()
+    {
+        var context = new FullscreenAppContext(true, new IntPtr(42), 7, null, IconResolutionFailed: true);
+        var args = new FullscreenAppContextChangedEventArgs(context);
+
+        Assert.True(args.IconResolutionFailed);
+        Assert.Null(args.Icon);
+        Assert.Equal(context.WindowHandle, args.WindowHandle);
+        Assert.Equal(context.ProcessId, args.ProcessId);
     }
 
     [Fact]

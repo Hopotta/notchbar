@@ -8,6 +8,7 @@ using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using System.Windows.Threading;
+using NotchBar.Core;
 
 [assembly: InternalsVisibleTo("NotchBar.Tests")]
 
@@ -68,6 +69,7 @@ public sealed class FullscreenAppContextService : IDisposable
     private bool _iconLookupInFlight;
     private bool _iconRetryScheduled;
     private bool _iconRetriesExhausted;
+    private bool _lateIconRetryAttempted;
     private int _iconRetryCount;
 
     public FullscreenAppContextService(MonitorPlacementMode mode)
@@ -282,6 +284,7 @@ public sealed class FullscreenAppContextService : IDisposable
         _iconLookupInFlight = false;
         _iconRetryScheduled = false;
         _iconRetriesExhausted = false;
+        _lateIconRetryAttempted = false;
         _iconRetryCount = 0;
     }
 
@@ -398,7 +401,7 @@ public sealed class FullscreenAppContextService : IDisposable
                 _iconLookupInFlight = false;
                 if (icon is not null)
                 {
-                    Publish(current with { Icon = icon });
+                    Publish(current with { Icon = icon, IconResolutionFailed = false });
                     return;
                 }
 
@@ -417,6 +420,24 @@ public sealed class FullscreenAppContextService : IDisposable
         if (delay is null)
         {
             _iconRetriesExhausted = true;
+            var current = Current;
+            if (!current.IconResolutionFailed)
+            {
+                Publish(current with { IconResolutionFailed = true });
+            }
+
+            if (!_lateIconRetryAttempted)
+            {
+                _lateIconRetryAttempted = true;
+                _iconRetryScheduled = true;
+                _ = RetryIconLookupAfterDelayAsync(
+                    window,
+                    processId,
+                    revision,
+                    FullscreenIconRetryPolicy.LateRecoveryDelay,
+                    restartExhaustedSequence: true);
+            }
+
             return;
         }
 
@@ -425,7 +446,12 @@ public sealed class FullscreenAppContextService : IDisposable
         _ = RetryIconLookupAfterDelayAsync(window, processId, revision, delay.Value);
     }
 
-    private async Task RetryIconLookupAfterDelayAsync(IntPtr window, uint processId, long revision, TimeSpan delay)
+    private async Task RetryIconLookupAfterDelayAsync(
+        IntPtr window,
+        uint processId,
+        long revision,
+        TimeSpan delay,
+        bool restartExhaustedSequence = false)
     {
         await Task.Delay(delay).ConfigureAwait(false);
         if (Volatile.Read(ref _disposed) != 0 || _dispatcher.HasShutdownStarted || _dispatcher.HasShutdownFinished)
@@ -451,6 +477,12 @@ public sealed class FullscreenAppContextService : IDisposable
                 }
 
                 _iconRetryScheduled = false;
+                if (restartExhaustedSequence)
+                {
+                    _iconRetriesExhausted = false;
+                    _iconRetryCount = 0;
+                }
+
                 StartIconLookupIfNeeded(window, processId, revision);
             }));
         }
@@ -910,7 +942,8 @@ public sealed class FullscreenAppContextService : IDisposable
         if (current.IsFullscreen == next.IsFullscreen &&
             current.WindowHandle == next.WindowHandle &&
             current.ProcessId == next.ProcessId &&
-            ReferenceEquals(current.Icon, next.Icon))
+            ReferenceEquals(current.Icon, next.Icon) &&
+            current.IconResolutionFailed == next.IconResolutionFailed)
         {
             return;
         }
@@ -1272,6 +1305,8 @@ internal static class FullscreenWindowClassifier
 
 internal static class FullscreenIconRetryPolicy
 {
+    internal static readonly TimeSpan LateRecoveryDelay = TimeSpan.FromSeconds(30);
+
     private static readonly TimeSpan[] RetryDelays =
     [
         TimeSpan.FromMilliseconds(250),
@@ -1287,7 +1322,12 @@ internal static class FullscreenIconRetryPolicy
             : null;
 }
 
-public sealed record FullscreenAppContext(bool IsFullscreen, IntPtr WindowHandle, uint ProcessId, ImageSource? Icon)
+public sealed record FullscreenAppContext(
+    bool IsFullscreen,
+    IntPtr WindowHandle,
+    uint ProcessId,
+    ImageSource? Icon,
+    bool IconResolutionFailed = false)
 {
     internal static FullscreenAppContext Empty { get; } = new(false, IntPtr.Zero, 0, null);
 }
@@ -1299,4 +1339,18 @@ public sealed class FullscreenAppContextChangedEventArgs(FullscreenAppContext co
     public IntPtr WindowHandle => Context.WindowHandle;
     public uint ProcessId => Context.ProcessId;
     public ImageSource? Icon => Context.Icon;
+    public bool IconResolutionFailed => Context.IconResolutionFailed;
+}
+
+internal static class FullscreenIconFailurePolicy
+{
+    internal static bool ShouldScheduleHide(bool isPinned, NotchState state) =>
+        !isPinned && state is not (NotchState.Hidden or NotchState.Pinned);
+
+    internal static bool ShouldWakeAfterRecovery(
+        bool wasResolutionFailed,
+        bool isPinned,
+        bool isDismissed,
+        NotchState state) =>
+        wasResolutionFailed && !isPinned && !isDismissed && state == NotchState.Hidden;
 }

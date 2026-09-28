@@ -49,6 +49,7 @@ public partial class MainWindow : Window, IDisposable
     private ImageSource? _displayedFullscreenBadgeIcon;
     private ImageSource? _pendingFullscreenBadgeIcon;
     private bool _fullscreenBadgeIconReadyForCurrentWindow;
+    private bool _fullscreenBadgeIconResolutionFailedForCurrentWindow;
     private bool _fullscreenBadgeSourceSwapPending;
     private DispatcherOperation? _fullscreenBadgeSourceSwapOperation;
     private Task<bool> _backdropInitializationTask = Task.FromResult(false);
@@ -402,6 +403,7 @@ public partial class MainWindow : Window, IDisposable
             _fullscreenBadgeWindowHandle = IntPtr.Zero;
             _fullscreenBadgeProcessId = 0;
             _fullscreenBadgeIconReadyForCurrentWindow = false;
+            _fullscreenBadgeIconResolutionFailedForCurrentWindow = false;
             _pendingFullscreenBadgeIcon = null;
             _fullscreenBadgeSourceSwapPending = false;
             _fullscreenBadgeSourceSwapOperation?.Abort();
@@ -433,7 +435,8 @@ public partial class MainWindow : Window, IDisposable
             _fullscreenWakeAutoHide.Cancel();
         }
 
-        _isFullscreenBadgeActive = _settings.FullscreenMode == FullscreenPresentationMode.Badge;
+        _isFullscreenBadgeActive = _settings.FullscreenMode == FullscreenPresentationMode.Badge &&
+            !context.IconResolutionFailed;
         if (identityChanged)
         {
             // A's countdown must not hide the compact island while B's icon
@@ -444,6 +447,7 @@ public partial class MainWindow : Window, IDisposable
             Debug.WriteLine($"Fullscreen app identity changed to hwnd={appWindow}, pid={processId}; preserving state={_stateMachine.Current} until its icon is ready.");
             _fullscreenBadgeWindowHandle = appWindow;
             _fullscreenBadgeProcessId = processId;
+            _fullscreenBadgeIconResolutionFailedForCurrentWindow = context.IconResolutionFailed;
             _fullscreenBadgeIconReadyForCurrentWindow = false;
             if (_isFullscreenBadgeActive &&
                 !_isFullscreenBadgeDismissed &&
@@ -457,10 +461,35 @@ public partial class MainWindow : Window, IDisposable
 
             QueueFullscreenBadgeIcon(context.Icon);
         }
-        else if (context.Icon is not null && !ReferenceEquals(context.Icon, _displayedFullscreenBadgeIcon))
+        else if (context.IconResolutionFailed)
         {
-            _fullscreenBadgeIconReadyForCurrentWindow = false;
-            QueueFullscreenBadgeIcon(context.Icon);
+            _fullscreenBadgeIconResolutionFailedForCurrentWindow = true;
+            // Return to the regular interactive island while this app has no
+            // usable icon. Queue null so a prior app's icon cannot remain staged.
+            QueueFullscreenBadgeIcon(null);
+        }
+        else
+        {
+            if (context.Icon is not null &&
+                FullscreenIconFailurePolicy.ShouldWakeAfterRecovery(
+                    _fullscreenBadgeIconResolutionFailedForCurrentWindow,
+                    _stateMachine.IsPinned,
+                    _isFullscreenBadgeDismissed,
+                    _stateMachine.Current))
+            {
+                _stateMachine.Wake();
+            }
+
+            if (context.Icon is not null && !ReferenceEquals(context.Icon, _displayedFullscreenBadgeIcon))
+            {
+                _fullscreenBadgeIconReadyForCurrentWindow = false;
+                QueueFullscreenBadgeIcon(context.Icon);
+            }
+
+            if (context.Icon is not null)
+            {
+                _fullscreenBadgeIconResolutionFailedForCurrentWindow = false;
+            }
         }
 
         var badgeGeometryReady = ShouldShowFullscreenBadge;
@@ -475,6 +504,12 @@ public partial class MainWindow : Window, IDisposable
         if (shouldReassertZOrder)
         {
             _ = _windowController.ReassertFullscreenZOrder();
+        }
+
+        if (context.IconResolutionFailed &&
+            FullscreenIconFailurePolicy.ShouldScheduleHide(_stateMachine.IsPinned, _stateMachine.Current))
+        {
+            ScheduleHideForActiveContent();
         }
     }
 
