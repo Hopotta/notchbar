@@ -33,12 +33,17 @@ internal sealed class FullscreenPinHitTarget : IDisposable
     private const int WmLButtonUp = 0x0202;
     private const int WmCaptureChanged = 0x0215;
     private const int WmCancelMode = 0x001F;
+    private const int WmInput = 0x00FF;
     private const int WmEraseBackground = 0x0014;
     private const int WmPaint = 0x000F;
     private const int HtClient = 1;
     private const int MaNoActivate = 3;
     private const int IdcHand = 32649;
     private const uint TmeLeave = 0x00000002;
+    private const uint RidevRemove = 0x00000001;
+    private const uint RidevInputSink = 0x00000100;
+    private const ushort HidUsagePageGeneric = 0x01;
+    private const ushort HidUsageMouse = 0x02;
     private const byte MinimumVisibleAlpha = 1;
     private static readonly IntPtr HwndTopmost = new(-1);
     private static readonly object ClassLock = new();
@@ -49,12 +54,14 @@ internal sealed class FullscreenPinHitTarget : IDisposable
     private Rectangle _bounds;
     private bool _visible;
     private bool _pressed;
-    private bool _hovered;
     private bool _trackingMouseLeave;
     private bool _disposed;
+    private bool _rawMouseInputRegistered;
     private readonly bool _useHandCursor;
+    private readonly bool _useRawMouseInput;
+    private readonly HoverEdgeLatch _hoverLatch = new();
 
-    public FullscreenPinHitTarget(IntPtr owner, bool useHandCursor = true)
+    public FullscreenPinHitTarget(IntPtr owner, bool useHandCursor = true, bool useRawMouseInput = false)
     {
         if (owner == IntPtr.Zero)
         {
@@ -62,6 +69,7 @@ internal sealed class FullscreenPinHitTarget : IDisposable
         }
 
         _useHandCursor = useHandCursor;
+        _useRawMouseInput = useRawMouseInput;
         EnsureClassRegistered();
         Handle = CreateWindowEx(
             WsExLayered | WsExNoActivate | WsExToolWindow,
@@ -137,6 +145,7 @@ internal sealed class FullscreenPinHitTarget : IDisposable
 
         _bounds = bounds;
         _visible = true;
+        EnsureRawMouseInputRegistered();
         RefreshHoverFromCursor();
         return true;
     }
@@ -160,6 +169,7 @@ internal sealed class FullscreenPinHitTarget : IDisposable
 
     public void Hide()
     {
+        UnregisterRawMouseInput();
         if (Handle != IntPtr.Zero && _visible)
         {
             if (_pressed)
@@ -182,13 +192,14 @@ internal sealed class FullscreenPinHitTarget : IDisposable
             return;
         }
 
+        UnregisterRawMouseInput();
         _disposed = true;
         var handle = Handle;
         Handle = IntPtr.Zero;
         _visible = false;
         _pressed = false;
         _trackingMouseLeave = false;
-        _hovered = false;
+        _hoverLatch.Reset();
         if (handle != IntPtr.Zero)
         {
             Instances.Remove(handle);
@@ -266,6 +277,15 @@ internal sealed class FullscreenPinHitTarget : IDisposable
                 target._trackingMouseLeave = false;
                 target.SetHovered(false);
                 return IntPtr.Zero;
+            case WmInput:
+                if (target._visible && target._rawMouseInputRegistered)
+                {
+                    target.RefreshHoverFromPhysicalCursor();
+                }
+
+                // DefWindowProc must receive WM_INPUT so Windows can release its
+                // per-message raw-input buffer after this background notification.
+                break;
             case WmLButtonDown:
 #if DEBUG
                 Debug.WriteLine($"FullscreenHitTarget {hwnd}: WM_LBUTTONDOWN bounds={target._bounds} cursor={GetCursorPositionForDebug()} captureBefore={GetCapture()}");
@@ -321,7 +341,15 @@ internal sealed class FullscreenPinHitTarget : IDisposable
 
     private void RefreshHoverFromCursor()
     {
-        if (!_visible || Handle == IntPtr.Zero || !GetCursorPos(out var point))
+        if (!_visible || Handle == IntPtr.Zero)
+        {
+            return;
+        }
+
+        var cursorAvailable = _useRawMouseInput
+            ? GetPhysicalCursorPos(out var point)
+            : GetCursorPos(out point);
+        if (!cursorAvailable)
         {
             return;
         }
@@ -335,6 +363,71 @@ internal sealed class FullscreenPinHitTarget : IDisposable
         {
             SetHovered(false);
         }
+    }
+
+    private void RefreshHoverFromPhysicalCursor()
+    {
+        if (!_visible || Handle == IntPtr.Zero || !GetPhysicalCursorPos(out var point))
+        {
+            return;
+        }
+
+        SetHovered(_bounds.Contains(point.X, point.Y));
+    }
+
+    private void EnsureRawMouseInputRegistered()
+    {
+        if (!_useRawMouseInput || _rawMouseInputRegistered || Handle == IntPtr.Zero)
+        {
+            return;
+        }
+
+        // Raw Input allows one process-wide recipient per usage, so future mouse-input features must coordinate through this target.
+        var device = new RawInputDevice
+        {
+            UsagePage = HidUsagePageGeneric,
+            Usage = HidUsageMouse,
+            Flags = RidevInputSink,
+            Target = Handle
+        };
+        if (RegisterRawInputDevices(ref device, 1, (uint)Marshal.SizeOf<RawInputDevice>()))
+        {
+            _rawMouseInputRegistered = true;
+#if DEBUG
+            Debug.WriteLine($"FullscreenHitTarget {Handle}: background raw mouse input registered");
+#endif
+            return;
+        }
+
+        var error = Marshal.GetLastWin32Error();
+        Debug.WriteLine($"Fullscreen wake raw mouse input is unavailable; using WM_MOUSEMOVE fallback: {new Win32Exception(error).Message}");
+    }
+
+    private void UnregisterRawMouseInput()
+    {
+        if (!_rawMouseInputRegistered)
+        {
+            return;
+        }
+
+        var device = new RawInputDevice
+        {
+            UsagePage = HidUsagePageGeneric,
+            Usage = HidUsageMouse,
+            Flags = RidevRemove,
+            Target = IntPtr.Zero
+        };
+        if (RegisterRawInputDevices(ref device, 1, (uint)Marshal.SizeOf<RawInputDevice>()))
+        {
+            _rawMouseInputRegistered = false;
+#if DEBUG
+            Debug.WriteLine($"FullscreenHitTarget {Handle}: background raw mouse input unregistered");
+#endif
+            return;
+        }
+
+        var error = Marshal.GetLastWin32Error();
+        Debug.WriteLine($"Fullscreen wake raw mouse input could not be unregistered: {new Win32Exception(error).Message}");
     }
 
     private void BeginMouseLeaveTracking(IntPtr hwnd)
@@ -355,12 +448,11 @@ internal sealed class FullscreenPinHitTarget : IDisposable
 
     private void SetHovered(bool hovered)
     {
-        if (_hovered == hovered)
+        if (!_hoverLatch.SetHovered(hovered))
         {
             return;
         }
 
-        _hovered = hovered;
 #if DEBUG
         Debug.WriteLine($"FullscreenHitTarget {Handle}: hover={(hovered ? "enter" : "leave")}, bounds={_bounds}");
 #endif
@@ -448,6 +540,15 @@ internal sealed class FullscreenPinHitTarget : IDisposable
         public int Y;
     }
 
+    [StructLayout(LayoutKind.Sequential)]
+    private struct RawInputDevice
+    {
+        public ushort UsagePage;
+        public ushort Usage;
+        public uint Flags;
+        public IntPtr Target;
+    }
+
     [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
     private static extern ushort RegisterClassEx(ref WindowClassEx windowClass);
 
@@ -500,6 +601,14 @@ internal sealed class FullscreenPinHitTarget : IDisposable
     [return: MarshalAs(UnmanagedType.Bool)]
     private static extern bool GetCursorPos(out NativePoint point);
 
+    [DllImport("user32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool GetPhysicalCursorPos(out NativePoint point);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool RegisterRawInputDevices(ref RawInputDevice devices, uint numberOfDevices, uint size);
+
     [DllImport("user32.dll", EntryPoint = "LoadCursorW", SetLastError = true)]
     private static extern IntPtr LoadCursor(IntPtr instance, IntPtr cursorName);
 
@@ -518,4 +627,26 @@ internal sealed class FullscreenPinHitTarget : IDisposable
 
     [DllImport("kernel32.dll", CharSet = CharSet.Unicode)]
     private static extern IntPtr GetModuleHandle(string? moduleName);
+}
+
+/// <summary>
+/// Suppresses duplicate enter/leave edges when the native mouse messages and
+/// background raw-input messages observe the same cursor transition.
+/// </summary>
+internal sealed class HoverEdgeLatch
+{
+    private bool _hovered;
+
+    public bool SetHovered(bool hovered)
+    {
+        if (_hovered == hovered)
+        {
+            return false;
+        }
+
+        _hovered = hovered;
+        return true;
+    }
+
+    public void Reset() => _hovered = false;
 }

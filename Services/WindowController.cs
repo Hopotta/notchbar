@@ -173,7 +173,10 @@ public sealed class WindowController : IDisposable
         }
         try
         {
-            _fullscreenWakeHitTarget = new FullscreenPinHitTarget(_handle, useHandCursor: false);
+            _fullscreenWakeHitTarget = new FullscreenPinHitTarget(
+                _handle,
+                useHandCursor: false,
+                useRawMouseInput: true);
             _fullscreenWakeHitTarget.MouseEntered += FullscreenWakeHitTarget_OnMouseEntered;
             _fullscreenWakeHitTarget.MouseLeft += FullscreenWakeHitTarget_OnMouseLeft;
         }
