@@ -62,6 +62,7 @@ public partial class MainWindow : Window, IDisposable
     private bool _fullscreenPinBoundsDirty;
     private bool _fullscreenWakeBoundsDirty;
     private bool _fullscreenPinHovered;
+    private readonly FullscreenWakeAutoHideCoordinator _fullscreenWakeAutoHide = new();
     private bool _disposed;
 
     public MainWindow(StatusStore statusStore, SettingsService settings)
@@ -288,6 +289,7 @@ public partial class MainWindow : Window, IDisposable
         if (_isFullscreenBadgeActive)
         {
             _autoHideService.Cancel();
+            _fullscreenWakeAutoHide.Cancel();
             if (_isFullscreenBadgeDismissed || _isFullscreenSuppressed)
             {
                 Debug.WriteLine($"Fullscreen badge hotkey: restore; current={_stateMachine.Current}, pinned={_stateMachine.IsPinned}");
@@ -365,6 +367,7 @@ public partial class MainWindow : Window, IDisposable
                 context?.WindowHandle ?? IntPtr.Zero,
                 context?.ProcessId ?? 0);
             _isFullscreenSuppressed = isFullscreen;
+            _fullscreenWakeAutoHide.Cancel();
             _windowController.SetSuppressed(_isFullscreenSuppressed);
             _windowBlurService.SetSuppressed(_isFullscreenSuppressed);
             ApplyBackdropVisual(_windowBlurService.IsActive);
@@ -385,6 +388,7 @@ public partial class MainWindow : Window, IDisposable
         if (!isFullscreen)
         {
             _fullscreenZOrderReassertionGate.Reset();
+            _fullscreenWakeAutoHide.Cancel();
             _autoHideService.Cancel();
             _autoHideService.ResetPointerState();
             _isFullscreenBadgeActive = false;
@@ -422,6 +426,11 @@ public partial class MainWindow : Window, IDisposable
         var processId = context.ProcessId;
         var identityChanged = appWindow != _fullscreenBadgeWindowHandle ||
             processId != _fullscreenBadgeProcessId;
+        if (identityChanged)
+        {
+            _fullscreenWakeAutoHide.Cancel();
+        }
+
         _isFullscreenBadgeActive = _settings.FullscreenMode == FullscreenPresentationMode.Badge;
         if (identityChanged)
         {
@@ -617,6 +626,7 @@ public partial class MainWindow : Window, IDisposable
     private void WindowController_OnFullscreenPinMouseEntered(object? sender, EventArgs e)
     {
         _fullscreenPinHovered = true;
+        _fullscreenWakeAutoHide.Cancel();
         if (!_disposed && ShouldShowFullscreenBadge && _compactPinButton is { IsVisible: true })
         {
             _autoHideService.OnMouseEnter();
@@ -633,6 +643,11 @@ public partial class MainWindow : Window, IDisposable
         _compactPinButton?.ClearValue(UIElement.OpacityProperty);
         if (ShouldShowFullscreenBadge && !_stateMachine.IsPinned)
         {
+            if (_fullscreenWakeAutoHide.IsPending)
+            {
+                return;
+            }
+
             _autoHideService.OnMouseLeave(GetAutoHideDelayForActiveContent());
         }
         else
@@ -652,12 +667,33 @@ public partial class MainWindow : Window, IDisposable
         _stateMachine.Wake();
         if (ShouldShowFullscreenBadge && !_stateMachine.IsPinned)
         {
+            // The timer is a full visible dwell interval. Arming it alongside
+            // the reveal spring would spend part of the interval before the
+            // badge reaches its interactive endpoint.
+            _fullscreenWakeAutoHide.Begin();
+            TryScheduleFullscreenWakeAutoHide(_windowController.CurrentFrame.IsSettled &&
+                !_windowController.IsTransitionActive);
+        }
+    }
+
+    private void TryScheduleFullscreenWakeAutoHide(bool isAtSettledEndpoint)
+    {
+        var canSchedule = !_disposed &&
+            !_isFullscreenSuppressed &&
+            !_isFullscreenBadgeDismissed &&
+            _isFullscreenBadgeActive &&
+            ShouldShowFullscreenBadge &&
+            !_stateMachine.IsPinned &&
+            _stateMachine.Current == NotchState.Compact;
+        if (_fullscreenWakeAutoHide.TryComplete(isAtSettledEndpoint, canSchedule))
+        {
             ScheduleHideForActiveContent();
         }
     }
 
     private void TogglePinnedCore()
     {
+        _fullscreenWakeAutoHide.Cancel();
         _autoHideService.Cancel();
         _stateMachine.TogglePinned();
         PinStateChanged?.Invoke(this, EventArgs.Empty);
@@ -680,6 +716,11 @@ public partial class MainWindow : Window, IDisposable
     {
         if (!_disposed)
         {
+            if (e.Current is NotchState.Hidden or NotchState.Expanded or NotchState.Pinned)
+            {
+                _fullscreenWakeAutoHide.Cancel();
+            }
+
             ApplyVisualState(e.Current);
         }
     }
@@ -765,6 +806,7 @@ public partial class MainWindow : Window, IDisposable
 
         ApplyIslandGeometry(e.Geometry, e.Dpi, e.Frame);
         ApplyFullscreenBadgeFrame(e.Frame);
+        TryScheduleFullscreenWakeAutoHide(e.Frame.IsSettled && !e.IsTransitionActive);
         if (_isFullscreenSuppressed)
         {
             return;
@@ -1199,6 +1241,11 @@ public partial class MainWindow : Window, IDisposable
 
     private void ScheduleHideForActiveContent()
     {
+        if (_fullscreenWakeAutoHide.IsPending)
+        {
+            return;
+        }
+
         _autoHideService.ScheduleHide(GetAutoHideDelayForActiveContent());
     }
 
@@ -1846,6 +1893,7 @@ public partial class MainWindow : Window, IDisposable
         }
 
         _disposed = true;
+        _fullscreenWakeAutoHide.Cancel();
         _fullscreenBadgeSourceSwapOperation?.Abort();
         _fullscreenBadgeSourceSwapOperation = null;
         _contentMorphPrepared = false;
