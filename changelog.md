@@ -2,9 +2,9 @@
 
 The repository had no release tags or explicit application version before this changelog was introduced. The version labels below are retrospective names for verified snapshots, not a record of published releases. The previous baseline used the .NET SDK's default `1.0.0` version; the current feature stack advances that baseline to `1.1.0`.
 
-## 1.1.0 — current merge candidate
+## 1.1.0 — 2026-09-28
 
-Snapshot at `f4d330b` (2026-09-28), after the `1.0.0` baseline at `a3a664a`.
+This version records changes merged after baseline commit `a3a664a` through `f4d330b`.
 
 ### Added
 
