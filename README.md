@@ -2,6 +2,8 @@
 
 NotchBar is a lightweight Windows top information island. It presents a small, borderless, always-on-top status bar centered at the top of a configured display. External programs push status data through a localhost REST API; NotchBar selects, displays, and expires that data instead of collecting business data itself.
 
+See [changelog.md](changelog.md) for the version history.
+
 ## Requirements
 
 - Windows 10 or later
@@ -40,11 +42,11 @@ Mouse movement over the centered top trigger wakes `Compact`. Leaving the island
 
 ## Hotkey and settings
 
-`Ctrl + Alt + Space` is the default visibility shortcut. To choose another shortcut, open the tray menu and select `Open Settings`, click the shortcut field, and press the key combination you want to use. The shortcut is registered through Windows `RegisterHotKey`. If another application already owns it, NotchBar keeps mouse interaction available.
+`Ctrl + Alt + Space` is the default visibility shortcut. To choose another shortcut, open the tray menu and select `Open Settings`, click the shortcut field, and press the key combination you want to use. The shortcut is registered through Windows `RegisterHotKey`. If another application already owns it, NotchBar keeps mouse interaction available. While the fullscreen app badge is active, the shortcut toggles the badge's visibility.
 
-The Settings window provides controls for the local API port, auto-hide delay, visibility shortcut, startup behavior, display selection, and fullscreen behavior. The descriptions in the window explain each choice. The local API port is usually best left unchanged. The auto-hide delay can be set from 0.1 to 10 seconds.
+The Settings window provides controls for the local API port, auto-hide delay, visibility shortcut, startup behavior, display selection, and fullscreen behavior. The descriptions in the window explain each choice. The API port must be between 1024 and 65535 and is usually best left unchanged. The auto-hide delay can be set from 0.1 to 10 seconds.
 
-For fullscreen behavior, choose `Show the app badge` to keep a compact status or clock badge with the foreground app icon when available, `Hide NotchBar` to fully hide it, or `Show NotchBar normally` to keep the regular island behavior. For display selection, choose the primary display or follow the display containing the active app.
+For fullscreen behavior, choose `Show the app badge` (the default) to show a compact status or clock badge with the foreground app icon when available, `Hide NotchBar` to fully hide it, or `Show NotchBar normally` to keep the regular island behavior. In badge mode, the badge auto-hides after the configured delay; moving the pointer over the centered top trigger wakes it again. Hover over the visible island to reveal its Pin control and keep it open. The badge icon itself is passive and click-through. For display selection, choose the primary display or follow the display containing the active app.
 
 Settings are stored for the current Windows user in `%LOCALAPPDATA%\NotchBar\settings.json`; NotchBar creates and updates this file automatically. You do not need to open or edit it. Changes are saved with `Save` and take effect after a restart. `Save & Restart` saves the changes and relaunches NotchBar. The Windows startup choice is updated as soon as it is saved.
 
@@ -54,7 +56,7 @@ NotchBar declares Per-Monitor V2 DPI awareness. WPF continues to lay out the con
 
 When moving between displays, the window is re-centered using the target display's real bounds. The current implementation supports primary-display placement and active-window following; selecting an arbitrary display by device name is intentionally deferred.
 
-Fullscreen behavior follows `fullscreenMode` on the relevant display. In `primary` mode, only eligible foreground windows on the primary display count; in `activeWindow` mode, the foreground display is used. Detection includes true fullscreen windows and visible OS-maximized windows covering the display's work area, so a maximized Codex window can trigger the badge even when the taskbar remains visible. `badge` shows the compact status/clock and, when available, the foreground app icon at the right with a smooth transition. The badge is passive and click-through. `hide` fully hides the island while an eligible fullscreen or maximized app is active, while `normal` keeps the regular island behavior. Context is refreshed from Windows foreground and window-location events, with a slower polling fallback. Detection uses window bounds rather than app-specific game or media integration, and icon lookup is best-effort; some windows may not provide a usable icon. A true exclusive-fullscreen game may not display a desktop overlay at all.
+Fullscreen behavior follows `fullscreenMode` on the relevant display. In `primary` mode, only eligible foreground windows on the primary display count; in `activeWindow` mode, the foreground display is used. Detection includes true fullscreen windows and visible OS-maximized windows covering the display's work area, so a maximized Codex window can trigger the badge even when the taskbar remains visible. `badge` shows the compact status/clock and, when available, the foreground app icon at the right with a smooth transition. The app icon is rendered at 18 × 18 device-independent pixels, up from 16 × 16 (~12.5% larger). The badge is passive and click-through. `hide` fully hides the island while an eligible fullscreen or maximized app is active, while `normal` keeps the regular island behavior. Context is refreshed from Windows foreground and window-location events, with a slower polling fallback. Detection uses window bounds rather than app-specific game or media integration. If icon lookup exhausts its retries, NotchBar temporarily returns to the normal interactive island instead of showing a placeholder icon; pinned state is preserved, and unpinned content follows its usual auto-hide behavior. It makes one recovery lookup after 30 seconds and restores the badge only if it finds a real icon. A true exclusive-fullscreen game may not display a desktop overlay at all.
 
 ## Tray, startup, and single-instance behavior
 

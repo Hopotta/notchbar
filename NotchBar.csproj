@@ -10,6 +10,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <AssemblyName>NotchBar</AssemblyName>
+    <Version>1.1.0</Version>
     <RootNamespace>NotchBar</RootNamespace>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <ApplicationIcon>Assets\NotchBar.ico</ApplicationIcon>
