@@ -115,9 +115,27 @@ public sealed class TrayService : IDisposable
 
         _disposed = true;
         _notifyIcon.DoubleClick -= NotifyIcon_OnDoubleClick;
-        _notifyIcon.Visible = false;
-        _notifyIcon.Dispose();
-        _menu.Dispose();
-        _icon.Dispose();
+        try
+        {
+            _notifyIcon.Visible = false;
+        }
+        finally
+        {
+            try
+            {
+                _notifyIcon.Dispose();
+            }
+            finally
+            {
+                try
+                {
+                    _menu.Dispose();
+                }
+                finally
+                {
+                    _icon.Dispose();
+                }
+            }
+        }
     }
 }

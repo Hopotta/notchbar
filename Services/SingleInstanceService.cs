@@ -13,8 +13,13 @@ public sealed class SingleInstanceService : IDisposable
     private bool _ownsMutex;
 
     public SingleInstanceService()
+        : this(MutexName, ActivationEventName)
     {
-        _mutex = new Mutex(initiallyOwned: false, MutexName);
+    }
+
+    internal SingleInstanceService(string mutexName, string activationEventName)
+    {
+        _mutex = new Mutex(initiallyOwned: false, mutexName);
         try
         {
             _ownsMutex = _mutex.WaitOne(0);
@@ -27,7 +32,7 @@ public sealed class SingleInstanceService : IDisposable
         }
 
         IsPrimary = _ownsMutex;
-        _activationEvent = new EventWaitHandle(false, EventResetMode.AutoReset, ActivationEventName);
+        _activationEvent = new EventWaitHandle(false, EventResetMode.AutoReset, activationEventName);
 
         if (!IsPrimary)
         {
@@ -73,23 +78,50 @@ public sealed class SingleInstanceService : IDisposable
 
         _disposed = true;
         _shutdownEvent.Set();
-        _listenTask?.GetAwaiter().GetResult();
-        _shutdownEvent.Dispose();
-        _activationEvent.Dispose();
-
-        if (_ownsMutex)
+        try
+        {
+            _listenTask?.GetAwaiter().GetResult();
+        }
+        catch (Exception exception)
+        {
+            System.Diagnostics.Debug.WriteLine($"NotchBar activation listener stopped with an error: {exception.Message}");
+        }
+        finally
         {
             try
             {
-                _mutex.ReleaseMutex();
+                _shutdownEvent.Dispose();
             }
-            catch (ApplicationException)
+            finally
             {
-                // The OS already released ownership during teardown.
+                try
+                {
+                    _activationEvent.Dispose();
+                }
+                finally
+                {
+                    try
+                    {
+                        if (_ownsMutex)
+                        {
+                            try
+                            {
+                                _mutex.ReleaseMutex();
+                            }
+                            catch (ApplicationException)
+                            {
+                                // The OS already released ownership during teardown.
+                            }
+                            _ownsMutex = false;
+                        }
+                    }
+                    finally
+                    {
+                        _mutex.Dispose();
+                    }
+                }
             }
-            _ownsMutex = false;
         }
 
-        _mutex.Dispose();
     }
 }

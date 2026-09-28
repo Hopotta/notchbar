@@ -21,7 +21,9 @@ public partial class App : System.Windows.Application
     private ApiService? _apiService;
     private Task? _apiStartTask;
     private MainWindow? _mainWindow;
+    private SettingsWindow? _settingsWindow;
     private bool _restartRequested;
+    private bool _shutdownRequested;
 
     protected override async void OnStartup(StartupEventArgs e)
     {
@@ -118,16 +120,12 @@ public partial class App : System.Windows.Application
 
     private void TrayService_OnOpenSettingsRequested(object? sender, EventArgs e)
     {
-        RunOnUi(OpenSettingsFile);
+        RunOnUi(OpenSettingsWindow);
     }
 
     private void TrayService_OnRestartRequested(object? sender, EventArgs e)
     {
-        RunOnUi(() =>
-        {
-            _restartRequested = true;
-            Shutdown();
-        });
+        RunOnUi(RequestRestart);
     }
 
     private void ToggleStartWithWindows()
@@ -159,28 +157,81 @@ public partial class App : System.Windows.Application
         _trayService?.SetStartWithWindows(next);
     }
 
-    private void OpenSettingsFile()
+    private void OpenSettingsWindow()
     {
-        if (_settingsService is null)
+        if (_settingsService is null || _startupService is null || _mainWindow is null || _shutdownRequested)
         {
             return;
         }
 
-        if (!File.Exists(_settingsService.SettingsPath) && !_settingsService.TrySave(out var saveError))
+        if (_settingsWindow is not null)
         {
-            System.Diagnostics.Debug.WriteLine($"NotchBar settings could not be created before opening: {saveError}");
+            if (!_settingsWindow.IsVisible)
+            {
+                _settingsWindow.Show();
+            }
+
+            if (_settingsWindow.WindowState == WindowState.Minimized)
+            {
+                _settingsWindow.WindowState = WindowState.Normal;
+            }
+
+            _settingsWindow.Activate();
             return;
         }
 
-        if (!ApplicationLaunchService.TryOpenFile(_settingsService.SettingsPath, out var openError))
+        var window = new SettingsWindow(_settingsService, _startupService)
         {
-            System.Diagnostics.Debug.WriteLine($"NotchBar settings could not be opened: {openError}");
+            Owner = _mainWindow
+        };
+        window.SettingsSaved += SettingsWindow_OnSettingsSaved;
+        window.Closed += SettingsWindow_OnClosed;
+        _settingsWindow = window;
+        window.Show();
+        window.Activate();
+    }
+
+    private void SettingsWindow_OnSettingsSaved(object? sender, SettingsSavedEventArgs e)
+    {
+        _trayService?.SetStartWithWindows(e.Current.StartWithWindows);
+        if (e.RestartRequested)
+        {
+            _ = Dispatcher.BeginInvoke(new Action(RequestRestart), System.Windows.Threading.DispatcherPriority.Background);
         }
+    }
+
+    private void SettingsWindow_OnClosed(object? sender, EventArgs e)
+    {
+        if (sender is SettingsWindow window)
+        {
+            window.SettingsSaved -= SettingsWindow_OnSettingsSaved;
+            window.Closed -= SettingsWindow_OnClosed;
+            if (ReferenceEquals(_settingsWindow, window))
+            {
+                _settingsWindow = null;
+            }
+        }
+    }
+
+    private void RequestRestart()
+    {
+        if (_shutdownRequested)
+        {
+            return;
+        }
+
+        _shutdownRequested = true;
+        _restartRequested = true;
+        Shutdown();
     }
 
     private void TrayService_OnExitRequested(object? sender, EventArgs e)
     {
-        RunOnUi(Shutdown);
+        RunOnUi(() =>
+        {
+            _shutdownRequested = true;
+            Shutdown();
+        });
     }
 
     private void ThemeService_OnChanged(object? sender, EventArgs e)
@@ -195,7 +246,7 @@ public partial class App : System.Windows.Application
 
     private void RunOnUi(Action action)
     {
-        if (Dispatcher.HasShutdownStarted)
+        if (Dispatcher.HasShutdownStarted || Dispatcher.HasShutdownFinished)
         {
             return;
         }
@@ -206,77 +257,154 @@ public partial class App : System.Windows.Application
         }
         else
         {
-            _ = Dispatcher.BeginInvoke(action);
+            try
+            {
+                _ = Dispatcher.BeginInvoke(action);
+            }
+            catch (InvalidOperationException) when (Dispatcher.HasShutdownStarted || Dispatcher.HasShutdownFinished)
+            {
+                // A native callback raced application shutdown.
+            }
         }
     }
 
     protected override void OnExit(ExitEventArgs e)
     {
-        _lifetimeCts.Cancel();
-
-        if (_trayService is not null)
+        try
         {
-            _trayService.ShowRequested -= TrayService_OnShowRequested;
-            _trayService.PinToggleRequested -= TrayService_OnPinToggleRequested;
-            _trayService.StartWithWindowsToggleRequested -= TrayService_OnStartWithWindowsToggleRequested;
-            _trayService.OpenSettingsRequested -= TrayService_OnOpenSettingsRequested;
-            _trayService.RestartRequested -= TrayService_OnRestartRequested;
-            _trayService.ExitRequested -= TrayService_OnExitRequested;
-            _trayService.Dispose();
+            _lifetimeCts.Cancel();
         }
-
-        if (_mainWindow is not null)
+        catch (Exception exception)
         {
-            _mainWindow.PinStateChanged -= MainWindow_OnPinStateChanged;
-            _mainWindow.Dispose();
-        }
-
-        using var apiShutdownCts = new CancellationTokenSource();
-        if (!_restartRequested)
-        {
-            apiShutdownCts.CancelAfter(ApiShutdownTimeout);
+            System.Diagnostics.Debug.WriteLine($"NotchBar lifetime cancellation failed: {exception.Message}");
         }
 
         try
         {
-            if (_apiService is not null)
+            Cleanup("settings window", () =>
             {
-                _apiService.StopAsync(apiShutdownCts.Token)
-                    .WaitAsync(apiShutdownCts.Token)
-                    .GetAwaiter()
-                    .GetResult();
-            }
+                if (_settingsWindow is not null)
+                {
+                    _settingsWindow.SettingsSaved -= SettingsWindow_OnSettingsSaved;
+                    _settingsWindow.Closed -= SettingsWindow_OnClosed;
+                    _settingsWindow.Close();
+                    _settingsWindow = null;
+                }
+            });
+
+            Cleanup("tray icon", () =>
+            {
+                if (_trayService is null)
+                {
+                    return;
+                }
+
+                _trayService.ShowRequested -= TrayService_OnShowRequested;
+                _trayService.PinToggleRequested -= TrayService_OnPinToggleRequested;
+                _trayService.StartWithWindowsToggleRequested -= TrayService_OnStartWithWindowsToggleRequested;
+                _trayService.OpenSettingsRequested -= TrayService_OnOpenSettingsRequested;
+                _trayService.RestartRequested -= TrayService_OnRestartRequested;
+                _trayService.ExitRequested -= TrayService_OnExitRequested;
+                _trayService.Dispose();
+                _trayService = null;
+            });
+
+            Cleanup("main window", () =>
+            {
+                if (_mainWindow is null)
+                {
+                    return;
+                }
+
+                _mainWindow.PinStateChanged -= MainWindow_OnPinStateChanged;
+                _mainWindow.Dispose();
+                _mainWindow = null;
+            });
+
+            StopApiWithinDeadline();
+
+            Cleanup("theme service", () =>
+            {
+                if (_themeService is null)
+                {
+                    return;
+                }
+
+                _themeService.ThemeChanged -= ThemeService_OnChanged;
+                _themeService.Dispose();
+                _themeService = null;
+            });
+
+            Cleanup("clock service", () =>
+            {
+                _clockService?.Dispose();
+                _clockService = null;
+            });
+
+            Cleanup("status store", () =>
+            {
+                _statusStore?.Dispose();
+                _statusStore = null;
+            });
         }
-        catch (OperationCanceledException) when (apiShutdownCts.IsCancellationRequested)
+        finally
         {
-            System.Diagnostics.Debug.WriteLine(
-                $"NotchBar API shutdown exceeded the {ApiShutdownTimeout.TotalSeconds:0}-second timeout");
+            Cleanup("single-instance service", () =>
+            {
+                if (_singleInstanceService is null)
+                {
+                    return;
+                }
+
+                _singleInstanceService.ActivationRequested -= SingleInstanceService_OnActivationRequested;
+                _singleInstanceService.Dispose();
+                _singleInstanceService = null;
+            });
+
+            _lifetimeCts.Dispose();
+
+            Cleanup("restart", () =>
+            {
+                if (_restartRequested && !ApplicationLaunchService.TryStartCurrentInstance(out var restartError))
+                {
+                    System.Diagnostics.Debug.WriteLine($"NotchBar could not restart: {restartError}");
+                }
+            });
+
+            base.OnExit(e);
+        }
+    }
+
+    private void StopApiWithinDeadline()
+    {
+        if (_apiService is null)
+        {
+            return;
+        }
+
+        try
+        {
+            if (!BoundedOperationRunner.TryRun(_apiService.StopAsync, ApiShutdownTimeout))
+            {
+                System.Diagnostics.Debug.WriteLine(
+                    $"NotchBar API shutdown exceeded the {ApiShutdownTimeout.TotalSeconds:0}-second timeout");
+            }
         }
         catch (Exception exception)
         {
             System.Diagnostics.Debug.WriteLine($"NotchBar API shutdown failed: {exception.Message}");
         }
+    }
 
-        if (_themeService is not null)
+    private static void Cleanup(string name, Action cleanup)
+    {
+        try
         {
-            _themeService.ThemeChanged -= ThemeService_OnChanged;
-            _themeService.Dispose();
+            cleanup();
         }
-        _clockService?.Dispose();
-        _statusStore?.Dispose();
-
-        if (_singleInstanceService is not null)
+        catch (Exception exception)
         {
-            _singleInstanceService.ActivationRequested -= SingleInstanceService_OnActivationRequested;
-            _singleInstanceService.Dispose();
+            System.Diagnostics.Debug.WriteLine($"NotchBar {name} cleanup failed: {exception.Message}");
         }
-
-        if (_restartRequested && !ApplicationLaunchService.TryStartCurrentInstance(out var restartError))
-        {
-            System.Diagnostics.Debug.WriteLine($"NotchBar could not restart: {restartError}");
-        }
-
-        _lifetimeCts.Dispose();
-        base.OnExit(e);
     }
 }
