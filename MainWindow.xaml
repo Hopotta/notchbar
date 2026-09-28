@@ -101,8 +101,8 @@
                             SnapsToDevicePixels="True">
                         <Grid x:Name="FullscreenBadgeContent">
                             <Image x:Name="FullscreenBadgeIcon"
-                                   Width="16"
-                                   Height="16"
+                                   Width="18"
+                                   Height="18"
                                    HorizontalAlignment="Center"
                                    VerticalAlignment="Center"
                                    Stretch="Uniform"
