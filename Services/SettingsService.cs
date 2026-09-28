@@ -35,22 +35,75 @@ public sealed class SettingsService
     public Key HotkeyKey { get; private set; }
     public TimeSpan AutoHideDelay => TimeSpan.FromMilliseconds(_settings.AutoHideDelayMs);
     public bool StartWithWindows => _settings.StartWithWindows;
-    public FullscreenPresentationMode FullscreenMode { get; }
+    public FullscreenPresentationMode FullscreenMode { get; private set; }
     public bool HideInFullscreen => FullscreenMode == FullscreenPresentationMode.Hide;
-    public MonitorPlacementMode MonitorMode { get; }
+    public MonitorPlacementMode MonitorMode { get; private set; }
     public string SettingsPath => _settingsPath;
+    public NotchBarSettings CurrentSettings => _settings;
 
     public bool SetStartWithWindows(bool enabled, out string? error)
     {
-        var previous = _settings;
-        _settings = _settings with { StartWithWindows = enabled };
-        if (TrySave(out error))
+        return TryUpdate(_settings with { StartWithWindows = enabled }, out error);
+    }
+
+    public bool TryUpdate(NotchBarSettings settings, out string? error)
+    {
+        ArgumentNullException.ThrowIfNull(settings);
+
+        if (settings.ApiPort is < 1024 or > 65535)
         {
+            error = "The local API port must be between 1024 and 65535.";
+            return false;
+        }
+
+        if (settings.AutoHideDelayMs is < 100 or > 10000)
+        {
+            error = "The auto-hide delay must be between 0.1 and 10 seconds.";
+            return false;
+        }
+
+        if (!TryParseHotkey(settings.Hotkey, out var modifiers, out var key))
+        {
+            error = "Choose a valid keyboard shortcut, such as Ctrl+Alt+Space.";
+            return false;
+        }
+
+        if (!TryParseMonitorMode(settings.MonitorMode, out var monitorMode))
+        {
+            error = "Choose a valid display option.";
+            return false;
+        }
+
+        if (!TryParseFullscreenMode(settings.FullscreenMode, out var fullscreenMode))
+        {
+            error = "Choose a valid fullscreen behavior.";
+            return false;
+        }
+
+        var updated = settings with
+        {
+            Hotkey = FormatHotkey(modifiers, key),
+            MonitorMode = ToSettingValue(monitorMode),
+            FullscreenMode = ToSettingValue(fullscreenMode)
+        };
+        var previous = _settings;
+        if (updated == previous)
+        {
+            error = null;
             return true;
         }
 
-        _settings = previous;
-        return false;
+        _settings = updated;
+        if (!TrySave(out error))
+        {
+            _settings = previous;
+            return false;
+        }
+
+        (HotkeyModifiers, HotkeyKey) = (modifiers, key);
+        MonitorMode = monitorMode;
+        FullscreenMode = fullscreenMode;
+        return true;
     }
 
     public bool TrySave(out string? error)
@@ -129,6 +182,17 @@ public sealed class SettingsService
         }
 
         return true;
+    }
+
+    public static string FormatHotkey(ModifierKeys modifiers, Key key)
+    {
+        var parts = new List<string>(5);
+        if (modifiers.HasFlag(ModifierKeys.Control)) parts.Add("Ctrl");
+        if (modifiers.HasFlag(ModifierKeys.Alt)) parts.Add("Alt");
+        if (modifiers.HasFlag(ModifierKeys.Shift)) parts.Add("Shift");
+        if (modifiers.HasFlag(ModifierKeys.Windows)) parts.Add("Win");
+        parts.Add(key.ToString());
+        return string.Join('+', parts);
     }
 
     public static bool TryParseMonitorMode(string? value, out MonitorPlacementMode mode)

@@ -73,6 +73,61 @@ public sealed class SettingsServiceTests
     }
 
     [Fact]
+    public void TryUpdate_PersistsAllPreferencesAndRaisesChangeEvent()
+    {
+        using var file = new TemporarySettingsFile();
+        var settings = new SettingsService(file.SettingsPath);
+        var previous = settings.CurrentSettings;
+
+        var updated = previous with
+        {
+            ApiPort = 41234,
+            AutoHideDelayMs = 2400,
+            Hotkey = "Shift+F8",
+            StartWithWindows = true,
+            MonitorMode = "activeWindow",
+            FullscreenMode = "hide"
+        };
+
+        Assert.True(settings.TryUpdate(updated, out var error), error);
+        Assert.Equal(41234, settings.ApiPort);
+        Assert.Equal(TimeSpan.FromMilliseconds(2400), settings.AutoHideDelay);
+        Assert.Equal(ModifierKeys.Shift, settings.HotkeyModifiers);
+        Assert.Equal(Key.F8, settings.HotkeyKey);
+        Assert.True(settings.StartWithWindows);
+        Assert.Equal(MonitorPlacementMode.ActiveWindow, settings.MonitorMode);
+        Assert.Equal(FullscreenPresentationMode.Hide, settings.FullscreenMode);
+
+        var reloaded = new SettingsService(file.SettingsPath);
+        Assert.Equal(settings.CurrentSettings, reloaded.CurrentSettings);
+    }
+
+    [Fact]
+    public void TryUpdate_InvalidValuesAreRejectedWithoutChangingSettingsOrRaisingEvent()
+    {
+        using var file = new TemporarySettingsFile();
+        var settings = new SettingsService(file.SettingsPath);
+        var initial = settings.CurrentSettings;
+
+        Assert.False(settings.TryUpdate(initial with { ApiPort = 80 }, out var error));
+
+        Assert.Contains("1024", error);
+        Assert.Equal(initial, settings.CurrentSettings);
+        Assert.False(File.Exists(file.SettingsPath));
+    }
+
+    [Fact]
+    public void FormatHotkey_CreatesShortcutThatCanBeParsedAgain()
+    {
+        var text = SettingsService.FormatHotkey(ModifierKeys.Control | ModifierKeys.Alt, Key.Space);
+
+        Assert.Equal("Ctrl+Alt+Space", text);
+        Assert.True(SettingsService.TryParseHotkey(text, out var modifiers, out var key));
+        Assert.Equal(ModifierKeys.Control | ModifierKeys.Alt, modifiers);
+        Assert.Equal(Key.Space, key);
+    }
+
+    [Fact]
     public void TypeInvalidFields_FallBackAndKeepValidPeers()
     {
         using var file = new TemporarySettingsFile();

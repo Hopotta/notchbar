@@ -40,43 +40,13 @@ Mouse movement over the centered top trigger wakes `Compact`. Leaving the island
 
 ## Hotkey and settings
 
-`Ctrl + Alt + Space` is the default visibility hotkey. The shortcut is registered through Windows `RegisterHotKey` and unregistered during shutdown. If another application already owns the shortcut, NotchBar keeps mouse interaction available and writes the registration failure to debug output.
+`Ctrl + Alt + Space` is the default visibility shortcut. To choose another shortcut, open the tray menu and select `Open Settings`, click the shortcut field, and press the key combination you want to use. The shortcut is registered through Windows `RegisterHotKey`. If another application already owns it, NotchBar keeps mouse interaction available.
 
-Settings are loaded from:
+The Settings window provides controls for the local API port, auto-hide delay, visibility shortcut, startup behavior, display selection, and fullscreen behavior. The descriptions in the window explain each choice. The local API port is usually best left unchanged. The auto-hide delay can be set from 0.1 to 10 seconds.
 
-```text
-%LOCALAPPDATA%\NotchBar\settings.json
-```
+For fullscreen behavior, choose `Show the app badge` to keep a compact status or clock badge with the foreground app icon when available, `Hide NotchBar` to fully hide it, or `Show NotchBar normally` to keep the regular island behavior. For display selection, choose the primary display or follow the display containing the active app.
 
-The file is created with defaults on first launch. Supported settings are:
-
-```json
-{
-  "apiPort": 32145,
-  "autoHideDelayMs": 900,
-  "hotkey": "Ctrl+Alt+Space",
-  "startWithWindows": false,
-  "fullscreenMode": "badge",
-  "monitorMode": "primary"
-}
-```
-
-`apiPort` is accepted from 1024 through 65535 and `autoHideDelayMs` from 100 through 10000. Invalid values and malformed hotkeys fall back to safe defaults. A malformed JSON file is ignored rather than preventing NotchBar from starting.
-
-`fullscreenMode` accepts:
-
-- `badge` (default): while an eligible foreground app is detected, show a compact status/clock badge with that app's icon on the right when an icon is available. Eligible windows include true fullscreen windows and OS-maximized windows that cover the target display's work area.
-- `hide`: fully hide NotchBar while an eligible fullscreen or OS-maximized app is detected.
-- `normal`: keep the island's regular behavior over fullscreen or maximized apps, without the app badge or fullscreen hiding.
-
-If `fullscreenMode` is absent, the legacy `hideInFullscreen` setting is migrated: `false` maps to `normal`, and `true` maps to `badge`. If neither setting is present, the default is `badge`. An invalid explicit `fullscreenMode` also falls back to `badge`; a valid explicit value takes precedence over the legacy setting. Set `fullscreenMode` to `hide` to retain full hiding during fullscreen.
-
-`monitorMode` accepts:
-
-- `primary`: keep NotchBar centered on the Windows primary display.
-- `activeWindow`: follow the display that contains the current foreground application. The foreground monitor is checked periodically, so switching focus between applications on different displays moves the island with the active work context.
-
-Use the tray menu's `Open Settings` command to open this file with the Windows-associated editor. Changes to the API port, hotkey, fullscreen preference, or monitor mode require a restart; after saving the file, choose `Restart NotchBar` from the tray to shut down cleanly and relaunch with the new settings.
+Settings are stored for the current Windows user in `%LOCALAPPDATA%\NotchBar\settings.json`; NotchBar creates and updates this file automatically. You do not need to open or edit it. Changes are saved with `Save` and take effect after a restart. `Save & Restart` saves the changes and relaunches NotchBar. The Windows startup choice is updated as soon as it is saved.
 
 ## Multi-monitor and DPI behavior
 
@@ -204,14 +174,13 @@ The script sends a demo status through `PUT /api/v1/items/demo` with a 10-second
 
 ## Current limitations
 
-- Settings are file-based; there is no graphical settings window yet.
 - `monitorMode` currently supports only the primary display or active-window following; choosing a fixed non-primary display by device name is not implemented yet.
 - Display placement is polling-based rather than event-hook based.
-- Settings that affect live services still require a restart, although the tray now makes the edit-and-restart workflow direct.
+- Saved settings take effect after restarting NotchBar; the Settings window provides a `Save & Restart` action. Windows startup registration updates immediately.
 - The UI displays one best item selected by priority and update time rather than implementing a multi-card layout system.
 - The API is loopback-only and currently has no authentication. Do not change the listener to a remote network interface without adding an explicit security design.
 - There is no Plugin SDK, Widget Marketplace, script runtime, or Event Bus.
 
 ## Possible future work
 
-The next product-level work is interaction polish around item transitions, relative update times, and notification behavior. A graphical settings surface can follow if the file-based tray workflow proves too limiting. Richer notification actions, status history, and additional visual themes can come later.
+The next product-level work is interaction polish around item transitions, relative update times, and notification behavior. Richer notification actions, status history, and additional visual themes can come later.

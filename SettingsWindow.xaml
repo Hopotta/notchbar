@@ -1,0 +1,208 @@
+<Window x:Class="NotchBar.SettingsWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="NotchBar Settings"
+        Width="570"
+        Height="780"
+        MinWidth="530"
+        MinHeight="700"
+        WindowStartupLocation="CenterOwner"
+        ResizeMode="CanResize"
+        Background="#F2F6F9"
+        FontFamily="Segoe UI"
+        SnapsToDevicePixels="True"
+        UseLayoutRounding="True">
+    <Window.Resources>
+        <Style x:Key="FieldTitle" TargetType="TextBlock">
+            <Setter Property="Foreground" Value="#172635" />
+            <Setter Property="FontSize" Value="14" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+        </Style>
+        <Style x:Key="FieldDescription" TargetType="TextBlock">
+            <Setter Property="Foreground" Value="#5C6D7C" />
+            <Setter Property="FontSize" Value="12" />
+            <Setter Property="TextWrapping" Value="Wrap" />
+            <Setter Property="Margin" Value="0,4,0,0" />
+        </Style>
+        <Style TargetType="TextBox">
+            <Setter Property="Padding" Value="9,6" />
+            <Setter Property="BorderBrush" Value="#B9C8D3" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="Background" Value="White" />
+            <Setter Property="Foreground" Value="#172635" />
+            <Setter Property="FontSize" Value="13" />
+            <Setter Property="VerticalContentAlignment" Value="Center" />
+        </Style>
+        <Style TargetType="ComboBox">
+            <Setter Property="Padding" Value="7,5" />
+            <Setter Property="BorderBrush" Value="#B9C8D3" />
+            <Setter Property="Background" Value="White" />
+            <Setter Property="Foreground" Value="#172635" />
+            <Setter Property="FontSize" Value="13" />
+        </Style>
+        <Style TargetType="Button">
+            <Setter Property="Padding" Value="14,8" />
+            <Setter Property="MinWidth" Value="92" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="FontSize" Value="13" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="BorderBrush" Value="#B9C8D3" />
+            <Setter Property="Background" Value="White" />
+            <Setter Property="Foreground" Value="#243746" />
+        </Style>
+    </Window.Resources>
+
+    <Grid Margin="24">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <StackPanel Grid.Row="0" Margin="0,0,0,16">
+            <TextBlock Text="NotchBar Settings"
+                       Foreground="#172635"
+                       FontSize="24"
+                       FontWeight="SemiBold" />
+            <TextBlock Text="Saved changes take effect after restart. Windows startup changes apply right away."
+                       Foreground="#5C6D7C"
+                       FontSize="13"
+                       Margin="0,5,0,0" />
+        </StackPanel>
+
+        <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
+            <Border Background="White"
+                    BorderBrush="#D5E0E7"
+                    BorderThickness="1"
+                    CornerRadius="12"
+                    Padding="18">
+                <StackPanel>
+                    <StackPanel Margin="0,0,0,18">
+                        <TextBlock Text="Local API port" Style="{StaticResource FieldTitle}" />
+                        <TextBlock Text="Apps use this port to send updates to NotchBar. Most people can leave it as it is."
+                                   Style="{StaticResource FieldDescription}" />
+                        <TextBox x:Name="ApiPortTextBox" Width="150" HorizontalAlignment="Left" Margin="0,9,0,0" />
+                    </StackPanel>
+
+                    <Separator Margin="0,0,0,16" Background="#E5EBEF" />
+
+                    <StackPanel Margin="0,0,0,18">
+                        <TextBlock Text="Keyboard shortcut" Style="{StaticResource FieldTitle}" />
+                        <TextBlock Text="Click the box and press the key combination you want to use."
+                                   Style="{StaticResource FieldDescription}" />
+                        <Grid Margin="0,9,0,0">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="190" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <TextBox x:Name="HotkeyTextBox"
+                                     IsReadOnly="True"
+                                     Focusable="True"
+                                     PreviewKeyDown="HotkeyTextBox_OnPreviewKeyDown"
+                                     ToolTip="Click here, then press a shortcut such as Ctrl+Alt+Space" />
+                            <Button Grid.Column="1"
+                                    Content="Use default"
+                                    Margin="8,0,0,0"
+                                    Padding="10,5"
+                                    MinWidth="0"
+                                    Click="UseDefaultHotkey_OnClick" />
+                        </Grid>
+                    </StackPanel>
+
+                    <Separator Margin="0,0,0,16" Background="#E5EBEF" />
+
+                    <StackPanel Margin="0,0,0,18">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <StackPanel>
+                                <TextBlock Text="Hide after" Style="{StaticResource FieldTitle}" />
+                                <TextBlock Text="How long NotchBar waits before it hides when you move the pointer away."
+                                           Style="{StaticResource FieldDescription}" />
+                            </StackPanel>
+                            <TextBlock x:Name="AutoHideValueText"
+                                       Grid.Column="1"
+                                       Foreground="#1D7182"
+                                       FontWeight="SemiBold"
+                                       VerticalAlignment="Center"
+                                       Margin="12,0,0,0" />
+                        </Grid>
+                        <Slider x:Name="AutoHideDelaySlider"
+                                Minimum="100"
+                                Maximum="10000"
+                                TickFrequency="100"
+                                IsSnapToTickEnabled="True"
+                                Margin="0,12,0,0"
+                                ValueChanged="AutoHideDelaySlider_OnValueChanged" />
+                        <Grid>
+                            <TextBlock Text="0.1 sec" Foreground="#718292" FontSize="11" HorizontalAlignment="Left" />
+                            <TextBlock Text="10 sec" Foreground="#718292" FontSize="11" HorizontalAlignment="Right" />
+                        </Grid>
+                    </StackPanel>
+
+                    <Separator Margin="0,0,0,16" Background="#E5EBEF" />
+
+                    <StackPanel Margin="0,0,0,18">
+                        <TextBlock Text="Display" Style="{StaticResource FieldTitle}" />
+                        <TextBlock Text="Choose which screen NotchBar follows."
+                                   Style="{StaticResource FieldDescription}" />
+                        <ComboBox x:Name="MonitorModeComboBox"
+                                  SelectedValuePath="Tag"
+                                  Margin="0,9,0,0">
+                            <ComboBoxItem Content="Primary display" Tag="primary" />
+                            <ComboBoxItem Content="Display with the active app" Tag="activeWindow" />
+                        </ComboBox>
+                    </StackPanel>
+
+                    <Separator Margin="0,0,0,16" Background="#E5EBEF" />
+
+                    <StackPanel Margin="0,0,0,18">
+                        <TextBlock Text="When an app is full screen" Style="{StaticResource FieldTitle}" />
+                        <TextBlock Text="Choose what NotchBar does while another app fills the screen."
+                                   Style="{StaticResource FieldDescription}" />
+                        <ComboBox x:Name="FullscreenModeComboBox"
+                                  SelectedValuePath="Tag"
+                                  Margin="0,9,0,0">
+                            <ComboBoxItem Content="Show the app badge" Tag="badge" />
+                            <ComboBoxItem Content="Hide NotchBar" Tag="hide" />
+                            <ComboBoxItem Content="Show NotchBar normally" Tag="normal" />
+                        </ComboBox>
+                    </StackPanel>
+
+                    <Separator Margin="0,0,0,16" Background="#E5EBEF" />
+
+                    <CheckBox x:Name="StartWithWindowsCheckBox"
+                              Content="Start NotchBar when I sign in to Windows"
+                              Foreground="#172635"
+                              FontSize="13"
+                              FontWeight="SemiBold"
+                              VerticalContentAlignment="Center" />
+                </StackPanel>
+            </Border>
+        </ScrollViewer>
+
+        <Grid Grid.Row="2" Margin="0,16,0,0">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+            <TextBlock x:Name="StatusText"
+                       Foreground="#5C6D7C"
+                       FontSize="12"
+                       TextWrapping="Wrap"
+                       VerticalAlignment="Center"
+                       Margin="0,0,14,0" />
+            <Button Grid.Column="1" Content="Save" Click="Save_OnClick" />
+            <Button Grid.Column="2"
+                    Content="Save &amp; Restart"
+                    Margin="8,0,0,0"
+                    Background="#1D8EA3"
+                    BorderBrush="#1D8EA3"
+                    Foreground="White"
+                    Click="SaveAndRestart_OnClick" />
+        </Grid>
+    </Grid>
+</Window>
