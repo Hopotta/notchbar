@@ -61,6 +61,8 @@ public partial class MainWindow : Window, IDisposable
     private bool _fullscreenHitTargetLayoutUpdatePending;
     private bool _fullscreenPinBoundsDirty;
     private bool _fullscreenWakeBoundsDirty;
+    private EventHandler? _fullscreenWakeBoundsRenderingHandler;
+    private long _fullscreenWakeBoundsGeneration;
     private bool _fullscreenPinHovered;
     private readonly FullscreenWakeAutoHideCoordinator _fullscreenWakeAutoHide = new();
     private bool _disposed;
@@ -978,6 +980,7 @@ public partial class MainWindow : Window, IDisposable
     {
         if (!ShouldShowFullscreenWakeTrigger || !HiddenTrigger.IsVisible)
         {
+            CancelFullscreenWakeBoundsRenderCallback();
             _fullscreenWakeBoundsDirty = false;
             _windowController.SetFullscreenWakeHitTarget(null);
             return;
@@ -987,17 +990,93 @@ public partial class MainWindow : Window, IDisposable
         {
             // Wait for the hidden envelope endpoint; do not chase its spring
             // with a second native window on every frame.
+            CancelFullscreenWakeBoundsRenderCallback();
             _fullscreenWakeBoundsDirty = true;
             return;
         }
 
         if (_fullscreenWakeBoundsDirty)
         {
-            ScheduleFullscreenHitTargetLayoutUpdate();
+            // A one-shot LayoutUpdated callback can be consumed during the
+            // spring, before the endpoint geometry is committed. If no further
+            // layout invalidation follows the settled motion frame, it would
+            // never run again. Publish at the next WPF render boundary instead:
+            // layout for the committed endpoint has completed by then, and the
+            // native wake target is updated before that frame is presented.
+            ScheduleFullscreenWakeBoundsRenderCallback();
             return;
         }
 
         PublishFullscreenWakeHitBounds();
+    }
+
+    private void ScheduleFullscreenWakeBoundsRenderCallback()
+    {
+        if (_fullscreenWakeBoundsRenderingHandler is not null ||
+            Dispatcher.HasShutdownStarted ||
+            Dispatcher.HasShutdownFinished)
+        {
+            return;
+        }
+
+        var generation = ++_fullscreenWakeBoundsGeneration;
+        EventHandler? handler = null;
+        handler = (sender, e) => MainWindow_OnFullscreenWakeBoundsRendering(
+            sender,
+            e,
+            generation,
+            handler!);
+        _fullscreenWakeBoundsRenderingHandler = handler;
+        CompositionTarget.Rendering += handler;
+    }
+
+    private void MainWindow_OnFullscreenWakeBoundsRendering(
+        object? sender,
+        EventArgs e,
+        long generation,
+        EventHandler handler)
+    {
+        if (generation != _fullscreenWakeBoundsGeneration ||
+            !ReferenceEquals(_fullscreenWakeBoundsRenderingHandler, handler))
+        {
+            return;
+        }
+
+        CompositionTarget.Rendering -= handler;
+        _fullscreenWakeBoundsRenderingHandler = null;
+
+        if (_disposed ||
+            !ShouldShowFullscreenWakeTrigger ||
+            !HiddenTrigger.IsVisible)
+        {
+            _fullscreenWakeBoundsDirty = false;
+            _windowController.SetFullscreenWakeHitTarget(null);
+            return;
+        }
+
+        if (_windowController.IsTransitionActive)
+        {
+            // A reverse/retarget began before this frame. Keep the target
+            // inactive until the new motion reaches its own settled endpoint.
+            _fullscreenWakeBoundsDirty = true;
+            return;
+        }
+
+        _fullscreenWakeBoundsDirty = false;
+        PublishFullscreenWakeHitBounds();
+    }
+
+    private void CancelFullscreenWakeBoundsRenderCallback()
+    {
+        _fullscreenWakeBoundsGeneration++;
+        var handler = _fullscreenWakeBoundsRenderingHandler;
+        if (handler is null)
+        {
+            return;
+        }
+
+        CompositionTarget.Rendering -= handler;
+        _fullscreenWakeBoundsRenderingHandler = null;
     }
 
     private void ScheduleFullscreenHitTargetLayoutUpdate()
@@ -1031,16 +1110,19 @@ public partial class MainWindow : Window, IDisposable
         {
             if (_windowController.IsTransitionActive)
             {
+                CancelFullscreenWakeBoundsRenderCallback();
                 _fullscreenWakeBoundsDirty = true;
             }
             else
             {
+                CancelFullscreenWakeBoundsRenderCallback();
                 _fullscreenWakeBoundsDirty = false;
                 PublishFullscreenWakeHitBounds();
             }
         }
         else
         {
+            CancelFullscreenWakeBoundsRenderCallback();
             _fullscreenWakeBoundsDirty = false;
             _windowController.SetFullscreenWakeHitTarget(null);
         }
@@ -1907,6 +1989,7 @@ public partial class MainWindow : Window, IDisposable
         _windowController.FullscreenPinMouseEntered -= WindowController_OnFullscreenPinMouseEntered;
         _windowController.FullscreenPinMouseLeft -= WindowController_OnFullscreenPinMouseLeft;
         _windowController.FullscreenWakeMouseEntered -= WindowController_OnFullscreenWakeMouseEntered;
+        CancelFullscreenWakeBoundsRenderCallback();
         DetachFullscreenHitTargetLayoutCallback();
         _windowBlurService.AvailabilityChanged -= WindowBlurService_OnAvailabilityChanged;
         CompactContent.PinClicked -= Pin_OnClicked;
